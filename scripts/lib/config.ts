@@ -11,12 +11,25 @@ export interface Route {
   model?: string;
 }
 
+/**
+ * Something a repository wants in its reviews beyond the text, such as a demo GIF. The reviewer picks
+ * the arguments; tidy runs `command` on the pull request and its base without secrets and attaches the files.
+ */
+export interface Extra {
+  name: string;
+  when: string[];
+  instructions: string;
+  image: string;
+  setup: string;
+  command: string[];
+}
+
 export interface Config {
   enabled: boolean;
   models: { allowed: string[] };
   triage: { model: string };
   routes: Route[];
-  review: { model: string; deep_model: string; checks: string[]; image: string };
+  review: { model: string; deep_model: string; checks: string[]; image: string; extras: Extra[] };
   agent: { opencode: string; image: string; timeout_minutes: number };
   limits: { outsider_attempts_per_day: number };
   protected_paths: string[];
@@ -55,6 +68,47 @@ function parseRoutes(value: unknown): Route[] {
   });
 }
 
+const IMAGE = /^[a-z0-9][a-z0-9./:@_-]{0,200}$/;
+
+function parseExtras(value: unknown): Extra[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 3) throw new Error("review.extras must be a list of at most 3 entries");
+  const text = (v: unknown, field: string, max: number) => {
+    if (typeof v !== "string" || v.length > max) throw new Error(`review.extras ${field} must be text up to ${max} characters`);
+    return v;
+  };
+  return value.map((raw, index) => {
+    const extra = raw as Record<string, unknown>;
+    const name = text(extra.name, "name", 40);
+    if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(name)) throw new Error(`review.extras[${index}].name may use letters, digits, spaces, - and _`);
+    const when = extra.when === undefined ? ["**"] : extra.when;
+    const command = extra.command;
+    if (!Array.isArray(when) || !when.every((g) => typeof g === "string" && g.length < 200)) throw new Error(`review.extras[${index}].when must be a list of globs`);
+    if (!Array.isArray(command) || !command.length || command.length > 50 || !command.every((a) => typeof a === "string" && a.length < 500)) {
+      throw new Error(`review.extras[${index}].command must be a list of arguments`);
+    }
+    const image = extra.image === undefined ? "node:22-bookworm" : text(extra.image, "image", 200);
+    if (!IMAGE.test(image)) throw new Error(`review.extras[${index}].image is not a valid image reference`);
+    return {
+      name,
+      when: when as string[],
+      instructions: text(extra.instructions ?? "", "instructions", 4000),
+      image,
+      setup: text(extra.setup ?? "", "setup", 4000),
+      command: command as string[],
+    };
+  });
+}
+
+/** Matches repository paths against `**`, `*` and `?` globs. */
+export function matchesGlob(path: string, pattern: string): boolean {
+  const source = pattern
+    .split(/(\*\*\/?|\*|\?)/)
+    .map((part) => (part.startsWith("**") ? ".*" : part === "*" ? "[^/]*" : part === "?" ? "[^/]" : part.replace(/[.+^${}()|[\]\\]/g, "\\$&")))
+    .join("");
+  return new RegExp(`^${source}$`).test(path);
+}
+
 export function parseInstance(raw: unknown): Config {
   const c = raw as Config;
   const config: Config = {
@@ -62,7 +116,7 @@ export function parseInstance(raw: unknown): Config {
     models: { allowed: c.models?.allowed ?? [] },
     triage: { model: c.triage?.model },
     routes: parseRoutes(c.routes ?? []),
-    review: { model: c.review?.model, deep_model: c.review?.deep_model ?? c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm" },
+    review: { model: c.review?.model, deep_model: c.review?.deep_model ?? c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm", extras: [] },
     agent: { opencode: c.agent?.opencode, image: c.agent?.image ?? "node:22-bookworm", timeout_minutes: c.agent?.timeout_minutes ?? 30 },
     limits: { outsider_attempts_per_day: c.limits?.outsider_attempts_per_day ?? 2 },
     protected_paths: c.protected_paths ?? [],
@@ -110,6 +164,7 @@ export function mergeRepo(instance: Config, raw: unknown, warn: (message: string
       deep_model: model(repo.review?.deep_model, instance.review.deep_model, "review.deep_model"),
       checks: (checks as string[] | undefined) ?? instance.review.checks,
       image: (image as string | undefined) ?? instance.review.image,
+      extras: parseExtras(repo.review?.extras),
     },
     protected_paths: [
       ...instance.protected_paths,

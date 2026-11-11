@@ -66,3 +66,10 @@ jobs:
           retention-days: 7
           # "Re-run all jobs" uploads again under the same name.
           overwrite: true
+      - if: steps.agent.outputs.plan == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plan
+          path: ${{ runner.temp }}/plan
+          retention-days: 7
+          overwrite: true

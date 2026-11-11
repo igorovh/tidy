@@ -52,9 +52,21 @@ jobs:
       task: reply
       model: ${{ needs.triage.outputs.model }}
 
-  checks:
+  # Picks the arguments for the repository's review extras, such as the steps of a demo recording.
+  plan:
     needs: gate
-    if: needs.gate.outputs.task == 'review' && needs.gate.outputs.checks == 'true'
+    if: needs.gate.outputs.task == 'review' && needs.gate.outputs.extras == 'true'
+    uses: ./.github/workflows/agent.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      task: plan
+      model: ${{ needs.gate.outputs.review-model }}
+
+  checks:
+    needs: [gate, plan]
+    if: always() && needs.gate.outputs.task == 'review' && needs.gate.outputs.checks == 'true'
     uses: ./.github/workflows/checks.yml
     permissions:
       contents: read

@@ -25,12 +25,17 @@ jobs:
         with:
           name: context
           path: ${{ runner.temp }}
+      - continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plan
+          path: ${{ runner.temp }}/plan
       - run: tar -xf "$RUNNER_TEMP/context.tar" -C "$RUNNER_TEMP"
       - run: bun tidy/scripts/checks.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: checks
-          path: ${{ runner.temp }}/checks/checks.md
+          path: ${{ runner.temp }}/checks
           retention-days: 1
           # "Re-run all jobs" uploads again under the same name.
           overwrite: true

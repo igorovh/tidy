@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { env, notice, setOutput } from "./lib/actions";
-import { type Config, mergeRepo, parseInstance } from "./lib/config";
+import { type Config, matchesGlob, mergeRepo, parseInstance } from "./lib/config";
 import { requestCredentials } from "./lib/credentials";
 import { canWrite, client, GitHubError, type GitHubClient } from "./lib/github";
 import { fetchSource } from "./lib/source";
@@ -23,6 +23,8 @@ export interface Meta {
   fork: boolean;
   /** Workflows that would run tidy's branch with secrets; non-empty means a maintainer must approve first. */
   secretWorkflows: string[];
+  /** Names of the review extras whose `when` globs match this pull request. */
+  extras: string[];
   config: Config;
 }
 
@@ -179,6 +181,7 @@ async function main() {
   let base: string;
   let fork = false;
   let risky: string[] = [];
+  let extras: string[] = [];
 
   if (task === "triage") {
     if (issue.pull_request) stop("triage runs on issues only");
@@ -217,6 +220,10 @@ async function main() {
     writeFileSync(join(out, "thread.md"), thread(`Pull request #${target.number}`, pr, comments, roles));
     base = fetchSource(repo, `refs/pull/${target.number}/head`, credentials.token!, ctx);
     if (base !== pr.head.sha) stop("the pull request changed while tidy was reading it");
+    const changed = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].flatMap((m) => [m[1]!, m[2]!]);
+    extras = config.review.extras.filter((extra) => changed.some((file) => extra.when.some((glob) => matchesGlob(file, glob)))).map((e) => e.name);
+    // Extras run on the base branch too, for a before and after.
+    if (extras.length) fetchSource(repo, `refs/heads/${info.default_branch}`, credentials.token!, { gitDir: join(out, "base.git"), workTree: join(out, "base") });
   }
 
   const meta: Meta = {
@@ -231,6 +238,7 @@ async function main() {
     deep,
     fork,
     secretWorkflows: risky,
+    extras,
     config,
   };
   writeFileSync(join(out, "meta.json"), JSON.stringify(meta, null, 2));
@@ -238,7 +246,8 @@ async function main() {
   setOutput("trusted", String(meta.trusted));
   setOutput("triage-model", config.triage.model);
   setOutput("review-model", deep ? config.review.deep_model : config.review.model);
-  setOutput("checks", String(config.review.checks.length > 0));
+  setOutput("checks", String(config.review.checks.length > 0 || extras.length > 0));
+  setOutput("extras", String(extras.length > 0));
 }
 
 await main();

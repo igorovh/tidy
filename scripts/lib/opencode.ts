@@ -1,4 +1,4 @@
-export type AgentTask = "triage" | "fix" | "reply" | "review";
+export type AgentTask = "triage" | "fix" | "reply" | "review" | "plan";
 
 type Statement = { action: string; resource: string; effect: "allow" | "deny" };
 

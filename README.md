@@ -114,6 +114,28 @@ routes:
 
 Keys live only in the Worker. Change models in `tidy.yml`; change keys in `/admin`.
 
+### Review extras
+
+A repository can ask for more than text in its reviews, such as a demo GIF of the changed UI. tidy
+knows nothing about the tool. It only runs a command the repository names:
+
+```yaml
+review:
+  extras:
+    - name: Demo
+      when: ["src/**"]            # only for pull requests that change these files
+      instructions: Record the changed behaviour. The steps are described in AGENTS.md.
+      image: node:22-bookworm
+      setup: apt-get install -y ffmpeg && bun install
+      command: ["bun", "run", "record", "--", "--out", "{out}/demo.gif"]
+```
+
+The reviewing model reads the instructions and the diff and picks the arguments. tidy then runs
+`setup` and `command` with those arguments in a container without secrets, once on the pull request and
+once on the base branch. The files the command writes to `{out}` (GIF, PNG, JPEG, WebP, MP4 or WebM, up
+to 10 MB) are attached to the review as **Before** and **After**, through the same upload GitHub's
+editor uses. The model sees the command output too, so it can say what changed.
+
 ### Commands
 
 Comment on an issue or pull request. Only people with write access can run commands.

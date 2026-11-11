@@ -27,12 +27,17 @@ function prompt(): string {
     ? "You have a shell. Install dependencies and run the project's checks before you finish."
     : "You have no shell. Edit files only and say in the pull request body that no checks were run; CI will run them.";
   const read = (name: string) => readFileSync(join(env("TIDY_ROOT"), "prompts", `${name}.md`), "utf8");
-  // Triage only answers with JSON, so it needs no writing style.
-  const text = task === "triage" ? read(task) : `${read(task)}\n${read("style")}`;
+  // Triage and plan only answer with JSON, so they need no writing style.
+  const text = task === "triage" || task === "plan" ? read(task) : `${read(task)}\n${read("style")}`;
+  const extras = meta.config.review.extras
+    .filter((extra) => meta.extras.includes(extra.name))
+    .map((extra) => `### ${extra.name}\n\nCommand: \`${extra.command.join(" ")}\` followed by your arguments.\n\n${extra.instructions}`)
+    .join("\n\n");
   return text
     .replaceAll("{{repo}}", meta.repo)
     .replaceAll("{{number}}", String(meta.number))
-    .replaceAll("{{shell}}", shellNote);
+    .replaceAll("{{shell}}", shellNote)
+    .replaceAll("{{extras}}", extras);
 }
 
 function prepareSandbox(): { work: string; stash: string } {
@@ -113,6 +118,22 @@ function emit(result: object, patch?: Buffer): void {
   setOutput("result", "true");
 }
 
+// Arguments go to the command as a list, never through a shell, so only their shape is checked here.
+function emitPlan(value: Record<string, unknown>): void {
+  const runs: Record<string, string[]> = {};
+  for (const [name, args] of Object.entries((value.runs ?? {}) as Record<string, unknown>)) {
+    if (!meta.extras.includes(name)) continue;
+    if (!Array.isArray(args) || args.length > 40 || !args.every((a) => typeof a === "string" && a.length <= 500 && !a.includes("\0"))) {
+      console.error(`Ignoring invalid arguments for ${name}`);
+      continue;
+    }
+    runs[name] = args;
+  }
+  mkdirSync(join(temp, "plan"), { recursive: true });
+  writeFileSync(join(temp, "plan", "plan.json"), JSON.stringify({ runs }));
+  setOutput("plan", "true");
+}
+
 const comment = (body: string) => emit({ type: "comment", body: sanitize(body) });
 
 function finishFix(work: string, stash: string, value: Record<string, unknown>): void {
@@ -169,6 +190,7 @@ async function main() {
     if (typeof value.body !== "string" || !value.body.trim()) throw new Error("The reply is empty");
     return comment(value.body);
   }
+  if (task === "plan") return emitPlan(value);
   const review = validateReview(value, readFileSync(join(context, "diff.patch"), "utf8"));
   emit({ type: "review", ...review });
 }
