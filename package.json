@@ -1,0 +1,20 @@
+{
+  "name": "tidy",
+  "version": "0.1.0",
+  "description": "A self-hosted GitHub bot that triages issues, proposes fixes as pull requests and reviews code, running on GitHub Actions and a Cloudflare Worker",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "deploy": "bun scripts/deploy.ts",
+    "dev": "wrangler dev",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p worker && tsc --noEmit -p scripts && tsc --noEmit -p tests"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261110.1",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2",
+    "wrangler": "4.160.1"
+  }
+}

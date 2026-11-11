@@ -1,0 +1,145 @@
+# tidy
+
+A GitHub bot you run yourself. When someone opens an issue, tidy decides what kind of issue it is, then
+answers it or proposes a fix as a pull request. When a pull request opens, it reviews it. It never pushes
+to your default branch, and no repository needs a secret.
+
+tidy runs on GitHub Actions in your copy of this repository, plus a small Cloudflare Worker (free plan)
+that receives GitHub webhooks and holds the keys. The agent is [OpenCode](https://opencode.ai).
+
+## How it works
+
+```text
+GitHub event ──▶ Worker ──repository_dispatch──▶ tidy workflows in your tidy repository
+(issue, PR,       checks the signature,           gate     reads the thread, decides trust, snapshots the code
+ @tidy comment)   holds the App key and           triage   a model with no tools labels the issue
+                  model keys                      fix / reply / review   OpenCode in a container
+                      ▲                           checks   your repo's tests, no credentials at all
+                      └── per-job credentials ─── publish  the only job with write access
+```
+
+Each job asks the Worker for exactly what it needs by presenting its GitHub Actions OIDC token. The
+Worker checks which workflow file the job runs and hands out:
+
+| Workflow | Gets |
+| --- | --- |
+| `gate.yml` | a read-only token for the target repository |
+| `agent.yml` | the model keys, and no GitHub token |
+| `publish.yml` | a token that can push a new branch and comment, for one repository, a few times per run |
+| `checks.yml` | nothing |
+
+Credentials are encrypted to a key that exists only inside the requesting job (X25519 + AES-GCM),
+and the OIDC token is bound to that key, so a leaked OIDC token is useless.
+
+## Set up your own
+
+You need a GitHub account, a free Cloudflare account and a model key, for example
+[OpenCode Go](https://opencode.ai/docs/console/go/).
+
+1. Click **Use this template** to create your own repository (public, so Actions minutes are free).
+2. Clone it, run `bun install`, then `bunx wrangler login`.
+3. Run `bun run deploy`. It deploys the Worker, creates its master key and prints a setup link.
+4. Open the link and click **Create GitHub App**. GitHub creates the App and gives its key straight to
+   the Worker; you never download it. Then install the App, ideally on **All repositories**, and make
+   sure your tidy repository is included.
+5. Open `https://<your-worker>/admin`, sign in with GitHub and save your model key, for example as
+   `OPENCODE_API_KEY`.
+
+In every repository tidy should open pull requests in, import
+[`rulesets/default-branch.json`](rulesets/default-branch.json) under **Settings → Rules → Rulesets →
+Import a ruleset**. It requires an approved pull request for the default branch, so the App can only
+propose changes. tidy refuses to push where no such rule exists. Also set **Settings → Actions →
+Workflow permissions** to read-only, because pull requests from tidy run your CI like any branch.
+
+### Adding repositories
+
+With **All repositories**, new repositories work right away. To exclude one, add `.github/tidy.yml`
+with `enabled: false`. Otherwise, add repositories under **Add repositories** in `/admin`, which opens
+GitHub's App installation page.
+
+## Configure
+
+[`tidy.yml`](tidy.yml) holds your instance's defaults: which models are allowed, the triage model,
+routes from issue kinds to actions, review settings and limits. A repository can override triage,
+routes, review settings and add protected paths in `.github/tidy.yml` on its default branch, within
+the models your instance allows:
+
+```yaml
+review:
+  checks: ["bun install --frozen-lockfile", "bun test"]
+routes:
+  - when: { kind: [bug], size: [small, medium] }
+    action: fix
+    model: opencode-go/kimi-k3.1-pro
+```
+
+Keys live only in the Worker. Change models in `tidy.yml`; change keys in `/admin`.
+
+### Commands
+
+Comment on an issue or pull request. Only people with write access can run commands.
+
+| Comment | Effect |
+| --- | --- |
+| `@tidy fix` | Attempt a fix for an issue, even one triaged as a question |
+| `@tidy review` | Review the pull request again |
+| `@tidy review deep` | Review with `review.deep_model` |
+
+New pull requests are reviewed when they open or leave draft. Pushes do not trigger a new review;
+comment `@tidy review` instead.
+
+## Security model
+
+tidy assumes the model can be talked into anything, and limits what it can do instead.
+
+- **Write access lives in one place.** Only `publish.yml` gets a token that can write, and it runs
+  tidy's code on artifacts, never repository or agent code. The App has no `workflows` permission, so
+  it cannot change CI, and the ruleset keeps it from merging or pushing to the default branch.
+  Reviews are always posted as comments, so tidy cannot satisfy a required approval.
+- **The agent runs in a container** that sees the workspace, a snapshot of the thread and its result
+  file. It has no GitHub token, and the runner's OIDC and artifact tokens are not passed in.
+  System-level OpenCode policies deny everything the task does not need and block project
+  `opencode.json` files, which could redirect the model key.
+- **Shell access is earned.** The agent gets a shell only when every author in the thread can already
+  push to the repository. Otherwise it can read and edit files only.
+- **Triage cannot act.** The first model to read an issue has no tools and can only answer with a
+  kind and a size from a fixed list.
+- **Patches are checked twice.** After the agent and again in `publish.yml`, using a git directory the
+  agent never saw: no protected paths (`.github/`, `opencode.json`, `.npmrc` and more), no symlinks or
+  submodules, at most 100 files and 5 MB. Patches are staged with `git apply --cached` and never run.
+- **Output is cleaned.** Mentions, images, HTML and links outside GitHub are removed from everything
+  tidy posts, and closing keywords cannot close other issues.
+- **Abuse limits.** People without write access get at most two fix attempts per day, and the Worker
+  caps workflow runs per day (`DAILY_RUN_LIMIT` in `wrangler.jsonc`).
+- **The Worker** verifies webhook signatures, stores keys encrypted with a master key kept as a
+  Worker secret, and protects `/admin` with GitHub sign-in (PKCE, admins of the tidy repository only,
+  one-hour sessions, CSRF tokens). Keys can be replaced but never read back, and every change opens
+  an issue in your tidy repository.
+
+Known limits:
+
+- A trusted fix has a shell and the model key in the same container, so a prompt injection by a
+  maintainer-written thread could leak the model key. It cannot push anything.
+- Run logs in your tidy repository show the target repositories' content. Keep tidy private if it
+  serves private repositories; private repositories use Actions minutes.
+- Protect your GitHub and Cloudflare accounts with 2FA. Whoever controls them controls the bot.
+
+## Update
+
+Your copy does not follow this template automatically. To pull fixes, add this repository as a
+remote and merge, then run `bun run deploy` again:
+
+```sh
+git remote add upstream https://github.com/igorovh/tidy.git
+git pull upstream main
+bun run deploy
+```
+
+## Develop
+
+```sh
+bun install
+bun run typecheck
+bun test
+bunx wrangler dev   # needs TIDY_MASTER_KEY in .dev.vars
+```
