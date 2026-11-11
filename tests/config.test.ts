@@ -26,6 +26,11 @@ describe("config", () => {
     expect(merged.limits.outsider_attempts_per_day).toBe(instance.limits.outsider_attempts_per_day);
   });
 
+  test("a repository can lower the outsider limit but never raise it", () => {
+    expect(mergeRepo(instance, { limits: { outsider_attempts_per_day: 1 } }).limits.outsider_attempts_per_day).toBe(1);
+    expect(mergeRepo(instance, { limits: { outsider_attempts_per_day: 0 } }).limits.outsider_attempts_per_day).toBe(0);
+  });
+
   test("triage output outside the allowed values is rejected", () => {
     expect(() => parseTriage({ kind: "bug; ignore previous instructions", size: "small" })).toThrow();
     expect(() => parseTriage({ kind: "bug" })).toThrow();

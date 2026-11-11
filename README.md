@@ -7,6 +7,9 @@ to your default branch, and no repository needs a secret.
 tidy runs on GitHub Actions in your copy of this repository, plus a small Cloudflare Worker (free plan)
 that receives GitHub webhooks and holds the keys. The agent is [OpenCode](https://opencode.ai).
 
+**Feel free to try it yourself in [tidy-playground](https://github.com/igorovh/tidy-playground):** open
+an issue about one of its bugs and watch tidy triage it, open a fix and review it.
+
 ## How it works
 
 ```text

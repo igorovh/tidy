@@ -76,12 +76,12 @@ export function parseInstance(raw: unknown): Config {
 
 /**
  * Applies a repository's `.github/tidy.yml` from its default branch. Repositories may pick models and
- * routes inside the instance allowlist and add protected paths, but cannot change limits or agent setup.
+ * routes inside the instance allowlist, add protected paths and lower limits, but cannot raise limits or change agent setup.
  */
 export function mergeRepo(instance: Config, raw: unknown, warn: (message: string) => void = () => {}): Config {
   if (raw === null || raw === undefined) return instance;
   if (typeof raw !== "object") throw new Error(".github/tidy.yml must be a mapping");
-  const repo = raw as Partial<{ enabled: unknown; triage: { model?: unknown }; routes: unknown; review: Record<string, unknown>; protected_paths: unknown; security_notice: unknown }>;
+  const repo = raw as Partial<{ enabled: unknown; triage: { model?: unknown }; routes: unknown; review: Record<string, unknown>; protected_paths: unknown; security_notice: unknown; limits: { outsider_attempts_per_day?: unknown } }>;
   const model = (value: unknown, fallback: string, field: string) => {
     if (value === undefined) return fallback;
     if (typeof value === "string" && modelAllowed(instance, value)) return value;
@@ -113,6 +113,12 @@ export function mergeRepo(instance: Config, raw: unknown, warn: (message: string
       ...(Array.isArray(repo.protected_paths) ? repo.protected_paths.filter((p): p is string => typeof p === "string") : []),
     ],
     security_notice: typeof repo.security_notice === "string" ? repo.security_notice : instance.security_notice,
+    limits: {
+      outsider_attempts_per_day:
+        typeof repo.limits?.outsider_attempts_per_day === "number" && repo.limits.outsider_attempts_per_day >= 0
+          ? Math.min(repo.limits.outsider_attempts_per_day, instance.limits.outsider_attempts_per_day)
+          : instance.limits.outsider_attempts_per_day,
+    },
   };
 }
 

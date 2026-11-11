@@ -44,7 +44,8 @@ agent:
   timeout_minutes: 30
 
 limits:
-  # Issues per day from people without write access that tidy tries to fix.
+  # Issues, and pull requests to review, per day from each person without write access.
+  # A repository may lower this in .github/tidy.yml, never raise it.
   outsider_attempts_per_day: 2
 
 # Patches touching these are rejected. A trailing slash means a directory at the repository root;

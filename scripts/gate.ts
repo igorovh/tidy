@@ -76,6 +76,14 @@ async function riskyWorkflows(gh: GitHubClient, repo: string, branch: string): P
   return [...secretWorkflows(files), ...unchecked];
 }
 
+// Counts what the author opened in the last day; search can lag a little behind, so this is approximate.
+async function checkLimit(gh: GitHubClient, repo: string, type: "issue" | "pr", login: string, config: Config) {
+  const since = new Date(Date.now() - 86_400_000).toISOString().slice(0, 19);
+  const query = `repo:${repo} is:${type} author:${login} created:>=${since}Z`;
+  const { total_count } = await gh.request<{ total_count: number }>(`/search/issues?q=${encodeURIComponent(query)}`);
+  if (total_count > config.limits.outsider_attempts_per_day) stop(`@${login} reached the daily limit`);
+}
+
 async function repoConfig(gh: GitHubClient, repo: string, branch: string): Promise<Config> {
   const instance = parseInstance(Bun.YAML.parse(readFileSync(join(env("TIDY_ROOT"), "tidy.yml"), "utf8")));
   let raw: string | null = null;
@@ -179,12 +187,7 @@ async function main() {
     if (open.some((pr) => pr.head.repo?.full_name === repo && pr.head.ref.startsWith(`tidy/issue-${target.number}-`))) {
       stop("a tidy pull request for this issue is already open");
     }
-    if (!trusted && !forceFix) {
-      const since = new Date(Date.now() - 86_400_000).toISOString().slice(0, 19);
-      const query = `repo:${repo} is:issue author:${issue.user.login} created:>=${since}Z`;
-      const { total_count } = await gh.request<{ total_count: number }>(`/search/issues?q=${encodeURIComponent(query)}`);
-      if (total_count > config.limits.outsider_attempts_per_day) stop(`@${issue.user.login} reached the daily limit`);
-    }
+    if (!trusted && !forceFix) await checkLimit(gh, repo, "issue", issue.user.login, config);
     writeFileSync(join(out, "thread.md"), thread(`Issue #${issue.number}`, issue, comments, roles));
     base = fetchSource(repo, `refs/heads/${info.default_branch}`, credentials.token!, ctx);
     if (!trusted) risky = await riskyWorkflows(gh, repo, info.default_branch);
@@ -197,6 +200,7 @@ async function main() {
       head: { sha: string; repo: { full_name: string } | null };
     }>(`/repos/${repo}/pulls/${target.number}`);
     if (pr.draft && target.kind !== "command") stop("draft pull request");
+    if (target.kind !== "command" && roles.get(pr.user.login) !== "maintainer") await checkLimit(gh, repo, "pr", pr.user.login, config);
     fork = pr.head.repo?.full_name !== repo;
     let diff: string;
     try {
