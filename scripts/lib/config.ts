@@ -21,6 +21,8 @@ export interface Config {
   limits: { outsider_attempts_per_day: number };
   protected_paths: string[];
   security_notice: string;
+  /** Workflows a maintainer marked as not exposing secrets to tidy's branches. */
+  safe_workflows: string[];
   require_ruleset: boolean;
 }
 
@@ -65,6 +67,7 @@ export function parseInstance(raw: unknown): Config {
     limits: { outsider_attempts_per_day: c.limits?.outsider_attempts_per_day ?? 2 },
     protected_paths: c.protected_paths ?? [],
     security_notice: c.security_notice ?? "",
+    safe_workflows: [],
     require_ruleset: c.require_ruleset === true,
   };
   for (const model of [config.triage.model, config.review.model, config.review.deep_model, ...config.routes.map((r) => r.model)]) {
@@ -81,7 +84,7 @@ export function parseInstance(raw: unknown): Config {
 export function mergeRepo(instance: Config, raw: unknown, warn: (message: string) => void = () => {}): Config {
   if (raw === null || raw === undefined) return instance;
   if (typeof raw !== "object") throw new Error(".github/tidy.yml must be a mapping");
-  const repo = raw as Partial<{ enabled: unknown; triage: { model?: unknown }; routes: unknown; review: Record<string, unknown>; protected_paths: unknown; security_notice: unknown; limits: { outsider_attempts_per_day?: unknown } }>;
+  const repo = raw as Partial<{ enabled: unknown; triage: { model?: unknown }; routes: unknown; review: Record<string, unknown>; protected_paths: unknown; security_notice: unknown; safe_workflows: unknown; limits: { outsider_attempts_per_day?: unknown } }>;
   const model = (value: unknown, fallback: string, field: string) => {
     if (value === undefined) return fallback;
     if (typeof value === "string" && modelAllowed(instance, value)) return value;
@@ -113,6 +116,7 @@ export function mergeRepo(instance: Config, raw: unknown, warn: (message: string
       ...(Array.isArray(repo.protected_paths) ? repo.protected_paths.filter((p): p is string => typeof p === "string") : []),
     ],
     security_notice: typeof repo.security_notice === "string" ? repo.security_notice : instance.security_notice,
+    safe_workflows: Array.isArray(repo.safe_workflows) ? repo.safe_workflows.filter((p): p is string => typeof p === "string") : [],
     limits: {
       outsider_attempts_per_day:
         typeof repo.limits?.outsider_attempts_per_day === "number" && repo.limits.outsider_attempts_per_day >= 0

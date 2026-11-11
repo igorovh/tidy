@@ -83,6 +83,13 @@ do, it posts the patch as a comment instead, and a maintainer opens the pull req
 `@tidy publish`. The comment pins the patch by its hash, so only what you read gets published. You do
 not need to configure anything for this.
 
+If a workflow uses secrets only for branches tidy never pushes, for example one limited to
+`renovate/` branches, list it in `.github/tidy.yml` so tidy ignores it:
+
+```yaml
+safe_workflows: [renovate-dist.yml]
+```
+
 ### Adding repositories
 
 With **All repositories**, new repositories work right away. To exclude one, add `.github/tidy.yml`

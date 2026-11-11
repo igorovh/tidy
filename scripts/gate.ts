@@ -190,7 +190,10 @@ async function main() {
     if (!trusted && !forceFix) await checkLimit(gh, repo, "issue", issue.user.login, config);
     writeFileSync(join(out, "thread.md"), thread(`Issue #${issue.number}`, issue, comments, roles));
     base = fetchSource(repo, `refs/heads/${info.default_branch}`, credentials.token!, ctx);
-    if (!trusted) risky = await riskyWorkflows(gh, repo, info.default_branch);
+    if (!trusted) {
+      const safe = new Set(config.safe_workflows.map((name) => name.split("/").pop()!.toLowerCase()));
+      risky = (await riskyWorkflows(gh, repo, info.default_branch)).filter((path) => !safe.has(path.split("/").pop()!.toLowerCase()));
+    }
   } else {
     const pr = await gh.request<{
       title: string;
