@@ -21,12 +21,15 @@ process.stdout.write(deployed);
 const url = deployed.match(/https:\/\/[^\s]+\.workers\.dev/)?.[0];
 // `bun run protect` reads the Worker address from here; it is not secret, just local.
 if (url) writeFileSync(".tidy.json", `${JSON.stringify({ worker: url }, null, 2)}\n`);
+const base = url ?? "https://<your-worker>.workers.dev";
+const adminLink = () => console.log(`Admin page (model keys, adding repositories): ${base}/admin\n`);
 
 const secrets = JSON.parse(wrangler(["secret", "list", "--format", "json"]) || "[]") as { name: string }[];
 if (secrets.some((secret) => secret.name === "TIDY_MASTER_KEY") && !resetKey) {
   console.log("\nTIDY_MASTER_KEY already exists, so the Worker keeps its data.");
   console.log("Lost the setup link before finishing setup? Run `bun run deploy -- --reset-key`.");
-  console.log("That makes stored data unreadable, so only use it before the GitHub App exists.");
+  console.log("That makes stored data unreadable, so only use it before the GitHub App exists.\n");
+  adminLink();
   process.exit(0);
 }
 
@@ -44,6 +47,6 @@ const mac = await crypto.subtle.deriveKey(
 );
 const code = b64url(await crypto.subtle.sign("HMAC", mac, utf8("setup|bootstrap")));
 const repo = originRepo();
-const base = url ?? "https://<your-worker>.workers.dev";
 console.log(`\nOpen this link to create your GitHub App (it works until setup is finished):\n`);
 console.log(`${base}/setup?code=${code}${repo ? `&repo=${encodeURIComponent(repo)}` : ""}\n`);
+adminLink();
