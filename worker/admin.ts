@@ -2,7 +2,7 @@ import { b64url, sha256, utf8 } from "../shared/encoding";
 import { deriveKeys, mac, macMatches, signValue, verifyValue } from "./crypto";
 import { type Env, type Instance, stateOf } from "./env";
 import { github, GitHubError, installationToken } from "./github";
-import { cookie, escape, page, readCookie } from "./html";
+import { cookie, escape, isSameOrigin, page, readCookie } from "./html";
 import { loadInstance, resolveRepo, saveInstance } from "./instance";
 
 const SESSION = "__Host-tidy-session";
@@ -33,7 +33,7 @@ export async function handleAdmin(request: Request, env: Env, origin: string): P
   if (path === "/admin/callback") return callback(request, env, instance, origin);
   const current = await session(request, env);
   if (request.method === "POST") {
-    if (request.headers.get("origin") !== origin) return page("Forbidden", "<p>Cross-site request.</p>", { status: 403 });
+    if (!isSameOrigin(request, origin)) return page("Forbidden", "<p>Cross-site request.</p>", { status: 403 });
     if (!current) return Response.redirect(`${origin}/admin`, 303);
     const form = await request.formData();
     const keys = await deriveKeys(env.TIDY_MASTER_KEY);

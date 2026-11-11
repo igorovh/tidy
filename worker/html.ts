@@ -29,7 +29,7 @@ export function page(title: string, body: string, init: ResponseInit & { headers
     "base-uri 'none'",
   ].join("; ");
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<meta name="referrer" content="no-referrer"><title>${escape(title)} · tidy</title><style>${STYLE}</style>
+<meta name="referrer" content="same-origin"><title>${escape(title)} · tidy</title><style>${STYLE}</style>
 <script nonce="${nonce}">${THEME}</script></head><body><button id="theme" type="button">🌙 Dark</button>
 <h1>${escape(title)}</h1>${body}</body></html>`;
   return new Response(html, {
@@ -38,10 +38,18 @@ export function page(title: string, body: string, init: ResponseInit & { headers
       "content-type": "text/html; charset=utf-8",
       "content-security-policy": csp,
       "x-content-type-options": "nosniff",
+      "referrer-policy": "same-origin",
       "cache-control": "no-store",
       ...init.headers,
     },
   });
+}
+
+// Browsers send `Origin: null` on POSTs from no-referrer pages; Sec-Fetch-Site still tells us the truth.
+export function isSameOrigin(request: Request, origin: string): boolean {
+  const header = request.headers.get("origin");
+  if (header && header !== "null") return header === origin;
+  return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
 export function cookie(name: string, value: string, maxAge: number, sameSite: "Strict" | "Lax", path = "/admin"): string {

@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { b64url, utf8 } from "../shared/encoding";
 import { decrypt, deriveKeys, encrypt, signValue, verifyValue } from "../worker/crypto";
 import { appJwt, pkcs1ToPkcs8 } from "../worker/github";
+import { isSameOrigin } from "../worker/html";
 import { classify, signatureMatches } from "../worker/webhook";
 
 const master = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -42,6 +43,22 @@ describe("GitHub App key", () => {
     const signature = Uint8Array.from(atob(s!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
     expect(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", verifier, signature, utf8(`${h}.${p}`))).toBe(true);
     expect(JSON.parse(atob(p!))).toMatchObject({ iss: 123 });
+  });
+});
+
+describe("admin form origin check", () => {
+  const post = (headers: Record<string, string>) => new Request("https://tidy.example.workers.dev/admin/keys", { method: "POST", headers });
+  const origin = "https://tidy.example.workers.dev";
+
+  test("accepts the admin's own form, including the Origin: null that no-referrer pages send", () => {
+    expect(isSameOrigin(post({ origin }), origin)).toBe(true);
+    expect(isSameOrigin(post({ origin: "null", "sec-fetch-site": "same-origin" }), origin)).toBe(true);
+  });
+
+  test("rejects other sites, even when they hide their origin", () => {
+    expect(isSameOrigin(post({ origin: "https://evil.test", "sec-fetch-site": "same-origin" }), origin)).toBe(false);
+    expect(isSameOrigin(post({ origin: "null", "sec-fetch-site": "cross-site" }), origin)).toBe(false);
+    expect(isSameOrigin(post({}), origin)).toBe(false);
   });
 });
 
