@@ -1,5 +1,6 @@
 // The only job that can write to the target repository. It runs no repository or agent code: it checks
 // the artifact again and turns it into a comment, a review or a pull request on a new branch.
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { env, notice } from "./lib/actions";
@@ -29,7 +30,44 @@ async function protectedBranch(gh: GitHubClient, meta: Meta): Promise<boolean> {
   return rules.some((rule) => rule.type === "pull_request" && (rule.parameters?.required_approving_review_count ?? 0) >= 1);
 }
 
+// Shows the patch on the issue instead of pushing it, because pushing would run CI with secrets on it.
+async function proposeForApproval(gh: GitHubClient, meta: Meta, result: { title: string; body: string }, patch: Buffer) {
+  const sha = createHash("sha256").update(patch).digest("hex");
+  const text = patch.toString("utf8");
+  const shown = text.length > 50_000 ? `${text.slice(0, 50_000)}\n… (truncated, ${patch.length} bytes in total)` : text;
+  const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  const workflows = meta.secretWorkflows.map((path) => `\`${path}\``).join(", ");
+  const body = [
+    `tidy prepared a fix: **${singleLine(result.title, 100)}**`,
+    "",
+    sanitize(result.body, 20_000),
+    "",
+    `This thread includes text from people without write access, and ${workflows} would run this change with repository secrets, so tidy has not pushed it. A maintainer can read the patch below and comment \`@tidy publish\` within 7 days to open the pull request.`,
+    "",
+    "<details><summary>Patch</summary>",
+    "",
+    `${fence}diff`,
+    shown,
+    fence,
+    "",
+    "</details>",
+    "",
+    `<!-- tidy:pending run=${env("GITHUB_RUN_ID")} sha=${sha} -->${FOOTER}`,
+  ].join("\n");
+  await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body } });
+}
+
 async function openPullRequest(gh: GitHubClient, token: string, bot: string, meta: Meta, result: { title: string; body: string }) {
+  const patch = readFileSync(join(resultDir, "patch.diff"));
+  const approver = process.env.APPROVER;
+  if (approver) {
+    // `@tidy publish` approved one exact patch, named by its hash in tidy's comment.
+    if (createHash("sha256").update(patch).digest("hex") !== env("PATCH_SHA")) {
+      throw new Error("The patch does not match the one shown for approval");
+    }
+  } else if (!meta.trusted && meta.secretWorkflows.length > 0) {
+    return proposeForApproval(gh, meta, result, patch);
+  }
   if (!(await protectedBranch(gh, meta))) {
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, {
       method: "POST",
@@ -46,7 +84,7 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
   const ctx = { gitDir: join(temp, "publish.git"), workTree: join(temp, "publish") };
   mkdirSync(ctx.workTree, { recursive: true });
   fetchSource(meta.repo, meta.base, token, ctx);
-  const files = applyPatch(ctx, meta.base, readFileSync(join(resultDir, "patch.diff")), meta.config.protected_paths);
+  const files = applyPatch(ctx, meta.base, patch, meta.config.protected_paths);
 
   const botUser = await gh.request<{ id: number }>(`/users/${encodeURIComponent(bot)}`);
   const title = singleLine(result.title, 100);
@@ -59,14 +97,15 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
   ].join("\n");
   const identity = ["-c", `user.name=${bot}`, "-c", `user.email=${botUser.id}+${bot}@users.noreply.github.com`, "-c", "commit.gpgsign=false"];
   git(ctx, [...identity, "commit", "--quiet", "--no-verify", "-F", "-"], message);
-  // Repositories can keep secret-bearing CI jobs off `tidy/untrusted/` branches (see README).
-  const prefix = meta.trusted ? "tidy" : "tidy/untrusted";
-  const branch = `${prefix}/issue-${meta.number}-${env("GITHUB_RUN_ID")}-${env("GITHUB_RUN_ATTEMPT")}`;
+  const branch = `tidy/issue-${meta.number}-${env("GITHUB_RUN_ID")}-${env("GITHUB_RUN_ATTEMPT")}`;
   const auth = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
   // A fresh branch name per attempt; tidy never force-pushes or touches existing branches.
   git(ctx, ["-c", `http.extraheader=${auth}`, "push", "--quiet", `https://github.com/${meta.repo}.git`, `HEAD:refs/heads/${branch}`]);
 
-  const origin = meta.trusted ? "" : "\n\n> [!WARNING]\n> This issue thread includes text from people without write access. Review the change, including scripts and dependencies, before letting CI run it with secrets.";
+  const approval = approver ? ` A maintainer, @​${approver}, approved publishing it.` : "";
+  const origin = meta.trusted
+    ? ""
+    : `\n\n> [!WARNING]\n> This issue thread includes text from people without write access. Review the change, including scripts and dependencies.${approval}`;
   const pr = await gh.request<{ number: number; html_url: string }>(`/repos/${meta.repo}/pulls`, {
     method: "POST",
     body: {
@@ -84,6 +123,15 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
     });
   } catch (error) {
     notice(`Could not label ${pr.html_url}: ${(error as Error).message}`);
+  }
+  if (approver && process.env.PROPOSAL) {
+    // Drop the marker so the same proposal cannot be published twice.
+    await gh
+      .request(`/repos/${meta.repo}/issues/comments/${process.env.PROPOSAL}`, {
+        method: "PATCH",
+        body: { body: `tidy published this change as ${pr.html_url}.${FOOTER}` },
+      })
+      .catch((error: Error) => notice(`Could not update the proposal comment: ${error.message}`));
   }
   notice(`Opened ${pr.html_url}`);
 }
@@ -126,6 +174,7 @@ async function main() {
     await postReview(gh, meta, validateReview(result, readFileSync(join(temp, "context", "diff.patch"), "utf8")));
   } else if (result.type === "pr") {
     if (meta.task !== "triage") throw new Error("Pull request result for a non-issue dispatch");
+    if (process.env.APPROVER && target.kind !== "command") throw new Error("Approval needs a @tidy publish command");
     await openPullRequest(gh, credentials.token!, credentials.bot.login, meta, result);
   } else {
     throw new Error("Unknown result type");

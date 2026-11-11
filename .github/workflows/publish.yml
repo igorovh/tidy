@@ -3,6 +3,20 @@ name: tidy publish
 # The only file the Worker gives a write token to. It runs tidy's code on artifacts and nothing else.
 on:
   workflow_call:
+    inputs:
+      # Set by `@tidy publish`: the earlier run whose patch a maintainer approved.
+      source-run:
+        type: string
+        default: ""
+      patch-sha:
+        type: string
+        default: ""
+      approver:
+        type: string
+        default: ""
+      proposal:
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -11,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -25,6 +40,8 @@ jobs:
         with:
           name: context
           path: ${{ runner.temp }}
+          run-id: ${{ inputs.source-run || github.run_id }}
+          github-token: ${{ github.token }}
       # Skipped tasks leave no result; publish.ts then has nothing to do.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
@@ -32,5 +49,11 @@ jobs:
           pattern: result-*
           merge-multiple: true
           path: ${{ runner.temp }}/result
+          run-id: ${{ inputs.source-run || github.run_id }}
+          github-token: ${{ github.token }}
       - run: tar -xf "$RUNNER_TEMP/context.tar" -C "$RUNNER_TEMP"
       - run: bun tidy/scripts/publish.ts
+        env:
+          APPROVER: ${{ inputs.approver }}
+          PATCH_SHA: ${{ inputs.patch-sha }}
+          PROPOSAL: ${{ inputs.proposal }}
