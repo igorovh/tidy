@@ -23,6 +23,8 @@ for (const command of meta.config.review.checks) {
     "docker",
     [
       "run", "--rm", "--init",
+      // Without capabilities, root cannot write to the runner-owned checkout; the runner's user can.
+      "--user", `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "2048", "--memory", "8g",
       "-e", "CI=true", "-e", "HOME=/tmp/home", "-e", "NPM_CONFIG_PREFIX=/tmp/npm", "-e", "PATH=/tmp/npm/bin:/usr/local/bin:/usr/bin:/bin",
       "-v", `${work}:/work`, "-w", "/work",

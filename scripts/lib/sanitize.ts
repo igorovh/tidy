@@ -1,13 +1,13 @@
 const MAX = 60_000;
-const ALLOWED_TAGS = /^<\/?(details|summary|br|b|i|em|strong|code|kbd|sub|sup)\s*\/?>$/i;
 const LINK = /\[([^\]]*)\]\(\s*<?([^)\s>]*)>?(?:\s+"[^"]*")?\s*\)/g;
 
 function clean(text: string): string {
   let out = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "[image removed: $1]");
   out = out.replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "[image removed: $1]");
   out = out.replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, "");
-  // GFM allows newlines inside a tag, so match across lines.
-  out = out.replace(/<[^>]*>?/g, (tag) => (ALLOWED_TAGS.test(tag) ? tag : tag.replace(/</g, "&lt;").replace(/>/g, "&gt;")));
+  // Every tag is escaped: even a harmless one alone on a line starts an HTML block, where code spans
+  // stop being code. GFM allows newlines inside a tag, so match across lines.
+  out = out.replace(/<[^>]*>?/g, (tag) => tag.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
   out = out.replace(LINK, (whole, label: string, url: string) => (isGitHub(url) ? whole : `${label} (link removed)`));
   return out;
 }
@@ -18,6 +18,13 @@ function clean(text: string): string {
  */
 export function sanitize(text: string, max = MAX): string {
   let out = text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+  // GitHub renders nothing inside code, so code is set aside untouched; otherwise `a <= b` would show `&lt;`.
+  // Control characters were stripped above, so the placeholders cannot be forged.
+  const code: string[] = [];
+  const keep = (match: string) => `\u0000${code.push(match) - 1}\u0000`;
+  out = out.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm, keep);
+  // A backslash before the opening backtick makes it literal on GitHub, so that is not code.
+  out = out.replace(/(?<![`\\])(`+)(?!`)[^\n]*?[^`\n]\1(?!`)/g, keep);
   // Nested constructs like [![x](a)](b) only surface after one pass, so repeat until stable.
   for (let previous = ""; previous !== out; ) {
     previous = out;
@@ -30,6 +37,7 @@ export function sanitize(text: string, max = MAX): string {
     /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)(\s*:?\s+)((?:https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:issues|pull)\/)|(?:[\w.-]+\/[\w.-]+)?#)(\d+)/gi,
     "$1$2$3​$4",
   );
+  out = out.replace(/\u0000(\d+)\u0000/g, (_, index: string) => code[Number(index)] ?? "");
   if (out.length > max) out = `${out.slice(0, max - 40)}\n\n…(truncated)`;
   return out.trim();
 }

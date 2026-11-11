@@ -140,7 +140,7 @@ tidy assumes the model can be talked into anything, and limits what it can do in
 - **Patches are checked twice.** After the agent and again in `publish.yml`, using a git directory the
   agent never saw: no protected paths (`.github/`, `opencode.json`, `.npmrc` and more), no symlinks or
   submodules, at most 100 files and 5 MB. Patches are staged with `git apply --cached` and never run.
-- **Output is cleaned.** Mentions, images, HTML other than a few formatting tags, and links outside
+- **Output is cleaned.** Mentions, images, HTML tags (code is left as written), and links outside
   GitHub (including `//host` and `www.` links) are removed from everything tidy posts, and closing
   keywords cannot close other issues.
 - **Outside input never reaches secrets unseen.** Fixes from threads with outside text wait for

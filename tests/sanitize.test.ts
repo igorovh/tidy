@@ -27,10 +27,30 @@ describe("sanitize", () => {
     }
   });
 
-  test("GitHub links and safe tags survive", () => {
-    const out = sanitize("<details><summary>Log</summary>ok</details> see https://github.com/a/b/issues/1");
-    expect(out).toContain("<details><summary>Log</summary>");
-    expect(out).toContain("https://github.com/a/b/issues/1");
+  test("code is left exactly as written, since GitHub renders nothing inside it", () => {
+    expect(sanitize("returns `\"\"` for `max <= 0`")).toBe("returns `\"\"` for `max <= 0`");
+    const block = "```ts\nif (a < b && c > d) ping(\"@octocat\");\n```";
+    expect(sanitize(`Fix:\n${block}`)).toBe(`Fix:\n${block}`);
+  });
+
+  test("text outside code is still cleaned next to code", () => {
+    const out = sanitize("`a <= b` and <img src=//evil.test/x> @octocat");
+    expect(out).toStartWith("`a <= b`");
+    expect(out).not.toContain("evil.test");
+    expect(out).not.toContain("@octocat");
+  });
+
+  test("GitHub links survive", () => {
+    expect(sanitize("see https://github.com/a/b/issues/1")).toContain("https://github.com/a/b/issues/1");
+  });
+
+  test("a tag line cannot turn the code next to it into live HTML", () => {
+    const out = sanitize("<details>\n`<img src=//evil.test/x>`");
+    expect(out).not.toMatch(/^<details>/);
+  });
+
+  test("a backslash-escaped backtick does not hide a tag", () => {
+    expect(sanitize("\\`<img src=//evil.test/x>\\`")).not.toMatch(/<img/);
   });
 
   test("closing keywords cannot close other issues", () => {
