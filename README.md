@@ -51,17 +51,19 @@ Import a ruleset**. It requires an approved pull request for the default branch,
 propose changes. tidy refuses to push where no such rule exists; classic branch protection is not
 detected, because reading it needs admin access.
 
-Pull requests from tidy are branches in your repository, so your CI runs on them with your secrets.
-When an issue thread includes text from people without write access, tidy pushes to
-`tidy/untrusted/…` instead of `tidy/…`. Keep secrets away from those branches, for example:
-
-```yaml
-jobs:
-  deploy-preview:
-    if: ${{ !startsWith(github.head_ref, 'tidy/untrusted/') }}
-```
-
 Also set **Settings → Actions → Workflow permissions** to read-only.
+
+### Fixes for outside issues
+
+Pull requests from tidy are branches in your repository, so your CI runs on them like on your own
+branches, including any secrets it uses. That is fine for ordinary CI, but a fix written from an
+outsider's issue could be steered into code that leaks those secrets.
+
+So when an issue thread includes text from people without write access, tidy reads your workflows
+first. If none of them run on pull requests with secrets, it opens the pull request right away. If some
+do, it posts the patch as a comment instead, and a maintainer opens the pull request by commenting
+`@tidy publish`. The comment pins the patch by its hash, so only what you read gets published. You do
+not need to configure anything for this.
 
 ### Adding repositories
 
@@ -94,6 +96,7 @@ Comment on an issue or pull request. Only people with write access can run comma
 | Comment | Effect |
 | --- | --- |
 | `@tidy fix` | Attempt a fix for an issue, even one triaged as a question |
+| `@tidy publish` | Open the pull request for a patch tidy posted for approval (within 7 days) |
 | `@tidy review` | Review the pull request again |
 | `@tidy review deep` | Review with `review.deep_model` |
 
@@ -122,10 +125,11 @@ tidy assumes the model can be talked into anything, and limits what it can do in
 - **Output is cleaned.** Mentions, images, HTML other than a few formatting tags, and links outside
   GitHub (including `//host` and `www.` links) are removed from everything tidy posts, and closing
   keywords cannot close other issues.
-- **Untrusted fixes are marked.** They get a `tidy/untrusted/` branch, a `tidy: untrusted` label and a
-  warning in the pull request, so CI and reviewers can treat them differently.
-- **Abuse limits.** tidy skips fixes for people without write access after two issues from them in a day, and the Worker
-  caps workflow runs per day (`DAILY_RUN_LIMIT` in `wrangler.jsonc`).
+- **Outside input never reaches secrets unseen.** Fixes from threads with outside text wait for
+  `@tidy publish` when the repository's pull request workflows use secrets. Otherwise they get a
+  `tidy: untrusted` label and a warning in the pull request.
+- **Abuse limits.** tidy skips fixes for people without write access after two issues from them in a
+  day, and the Worker caps workflow runs per day (`DAILY_RUN_LIMIT` in `wrangler.jsonc`).
 - **The Worker** verifies webhook signatures, stores keys encrypted with a master key kept as a
   Worker secret, and protects `/admin` with GitHub sign-in (PKCE, admins of the tidy repository only,
   one-hour sessions, CSRF tokens). Keys can be replaced but never read back, and every change opens

@@ -14,6 +14,14 @@ on:
         value: ${{ jobs.gate.outputs.review-model }}
       checks:
         value: ${{ jobs.gate.outputs.checks }}
+      source-run:
+        value: ${{ jobs.gate.outputs.source-run }}
+      patch-sha:
+        value: ${{ jobs.gate.outputs.patch-sha }}
+      approver:
+        value: ${{ jobs.gate.outputs.approver }}
+      proposal:
+        value: ${{ jobs.gate.outputs.proposal }}
 
 permissions: {}
 
@@ -30,6 +38,10 @@ jobs:
       triage-model: ${{ steps.gate.outputs.triage-model }}
       review-model: ${{ steps.gate.outputs.review-model }}
       checks: ${{ steps.gate.outputs.checks }}
+      source-run: ${{ steps.gate.outputs.source-run }}
+      patch-sha: ${{ steps.gate.outputs.patch-sha }}
+      approver: ${{ steps.gate.outputs.approver }}
+      proposal: ${{ steps.gate.outputs.proposal }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,14 +55,14 @@ jobs:
           TIDY_ROOT: tidy
         run: bun tidy/scripts/gate.ts
       # A tar keeps symlinks from the target repository as links instead of following them.
-      - if: steps.gate.outputs.task != 'none'
+      - if: steps.gate.outputs.task == 'triage' || steps.gate.outputs.task == 'review'
         run: tar -cf "$RUNNER_TEMP/context.tar" -C "$RUNNER_TEMP" context
-      - if: steps.gate.outputs.task != 'none'
+      - if: steps.gate.outputs.task == 'triage' || steps.gate.outputs.task == 'review'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: context
           path: ${{ runner.temp }}/context.tar
-          retention-days: 1
+          retention-days: 7
           # "Re-run all jobs" uploads again under the same name.
           overwrite: true
           if-no-files-found: error

@@ -6,8 +6,9 @@ import { type Config, mergeRepo, parseInstance } from "./lib/config";
 import { requestCredentials } from "./lib/credentials";
 import { canWrite, client, GitHubError, type GitHubClient } from "./lib/github";
 import { fetchSource } from "./lib/source";
+import { PENDING, secretWorkflows } from "./lib/workflows";
 
-export type Task = "triage" | "review" | "none";
+export type Task = "triage" | "review" | "publish" | "none";
 
 export interface Meta {
   task: Task;
@@ -20,6 +21,8 @@ export interface Meta {
   forceFix: boolean;
   deep: boolean;
   fork: boolean;
+  /** Workflows that would run tidy's branch with secrets; non-empty means a maintainer must approve first. */
+  secretWorkflows: string[];
   config: Config;
 }
 
@@ -50,6 +53,27 @@ function stop(reason: string): never {
   notice(`tidy skipped: ${reason}`);
   setOutput("task", "none");
   process.exit(0);
+}
+
+async function riskyWorkflows(gh: GitHubClient, repo: string, branch: string): Promise<string[]> {
+  let entries: { path: string; type: string; size: number }[];
+  try {
+    entries = await gh.request(`/repos/${repo}/contents/.github/workflows?ref=${encodeURIComponent(branch)}`);
+  } catch (error) {
+    if (error instanceof GitHubError && error.status === 404) return [];
+    throw error;
+  }
+  const workflows = entries.filter((e) => e.type === "file" && /\.ya?ml$/.test(e.path));
+  // Files we cannot inspect cannot be ruled out.
+  const unchecked = workflows.filter((e, i) => e.size > 200_000 || i >= 50).map((e) => e.path);
+  const files: { path: string; text: string }[] = [];
+  for (const entry of workflows.slice(0, 50).filter((e) => e.size <= 200_000)) {
+    const text = await gh.request<string>(`/repos/${repo}/contents/${entry.path}?ref=${encodeURIComponent(branch)}`, {
+      accept: "application/vnd.github.raw",
+    });
+    files.push({ path: entry.path, text });
+  }
+  return [...secretWorkflows(files), ...unchecked];
 }
 
 async function repoConfig(gh: GitHubClient, repo: string, branch: string): Promise<Config> {
@@ -113,12 +137,29 @@ async function main() {
     } else if (words[0] === "fix" && !issue.pull_request) {
       task = "triage";
       forceFix = true;
+    } else if (words[0] === "publish" && !issue.pull_request) {
+      task = "publish";
     } else stop(`unknown command: ${words.join(" ")}`);
   } else {
     task = target.kind === "review" ? "review" : "triage";
   }
 
   if (issue.state !== "open") stop("issue or pull request is closed");
+
+  if (task === "publish") {
+    // Only tidy's own latest proposal on this issue can be published; its hash pins the exact patch.
+    const proposal = comments.filter((c) => c.user.login === credentials.bot.login && PENDING.test(c.body)).pop();
+    // The real marker is the last one; the patch shown above it could contain a fake.
+    const match = proposal && [...proposal.body.matchAll(new RegExp(PENDING.source, "g"))].pop();
+    if (!match) stop("no change from tidy is waiting for approval on this issue");
+    const command = comments.find((c) => c.id === target.comment_id)!;
+    setOutput("task", "publish");
+    setOutput("source-run", match[1]!);
+    setOutput("patch-sha", match[2]!);
+    setOutput("approver", command.user.login);
+    setOutput("proposal", String(proposal!.id));
+    return;
+  }
   const roles = new Map<string, string>();
   const participants = [issue.user.login, ...comments.map((c) => c.user.login)];
   for (const login of new Set(participants)) roles.set(login, (await isWriter(login)) ? "maintainer" : "outside contributor");
@@ -129,12 +170,13 @@ async function main() {
   const ctx = { gitDir: join(out, "source.git"), workTree: join(out, "source") };
   let base: string;
   let fork = false;
+  let risky: string[] = [];
 
   if (task === "triage") {
     if (issue.pull_request) stop("triage runs on issues only");
     if (issue.user.type === "Bot") stop("issue opened by a bot");
     const open = await gh.paginate<{ head: { ref: string; repo: { full_name: string } | null } }>(`/repos/${repo}/pulls?state=open`, 1000);
-    if (open.some((pr) => pr.head.repo?.full_name === repo && /^tidy\/(untrusted\/)?issue-(\d+)-/.exec(pr.head.ref)?.[2] === String(target.number))) {
+    if (open.some((pr) => pr.head.repo?.full_name === repo && pr.head.ref.startsWith(`tidy/issue-${target.number}-`))) {
       stop("a tidy pull request for this issue is already open");
     }
     if (!trusted && !forceFix) {
@@ -145,6 +187,7 @@ async function main() {
     }
     writeFileSync(join(out, "thread.md"), thread(`Issue #${issue.number}`, issue, comments, roles));
     base = fetchSource(repo, `refs/heads/${info.default_branch}`, credentials.token!, ctx);
+    if (!trusted) risky = await riskyWorkflows(gh, repo, info.default_branch);
   } else {
     const pr = await gh.request<{
       title: string;
@@ -180,6 +223,7 @@ async function main() {
     forceFix,
     deep,
     fork,
+    secretWorkflows: risky,
     config,
   };
   writeFileSync(join(out, "meta.json"), JSON.stringify(meta, null, 2));

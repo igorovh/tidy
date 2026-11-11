@@ -75,5 +75,11 @@ jobs:
     if: always() && needs.gate.result == 'success' && needs.gate.outputs.task != 'none'
     uses: ./.github/workflows/publish.yml
     permissions:
+      actions: read
       contents: read
       id-token: write
+    with:
+      source-run: ${{ needs.gate.outputs.source-run }}
+      patch-sha: ${{ needs.gate.outputs.patch-sha }}
+      approver: ${{ needs.gate.outputs.approver }}
+      proposal: ${{ needs.gate.outputs.proposal }}
