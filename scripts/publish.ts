@@ -7,7 +7,7 @@ import { env, notice } from "./lib/actions";
 import { type Credentials, requestCredentials, type Target } from "./lib/credentials";
 import { client, GitHubError, type GitHubClient } from "./lib/github";
 import { applyPatch, git } from "./lib/patch";
-import { type Review, validateReview } from "./lib/review";
+import { renderReview, type Review, validateReview } from "./lib/review";
 import { sanitize, singleLine } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
 import type { Meta } from "./gate";
@@ -212,14 +212,14 @@ async function extrasSection(gh: GitHubClient, token: string, meta: Meta): Promi
       );
     }
   }
-  return parts.length ? `\n\n${parts.join("\n\n")}` : "";
+  return parts.join("\n\n");
 }
 
 async function postReview(gh: GitHubClient, token: string, meta: Meta, review: Review) {
   const pr = await gh.request<{ head: { sha: string } }>(`/repos/${meta.repo}/pulls/${meta.number}`);
   const stale = pr.head.sha !== meta.base;
   const extras = await extrasSection(gh, token, meta);
-  const body = `${review.summary}${extras}${stale ? `\n\n_Reviewed commit ${meta.base.slice(0, 7)}; the pull request has changed since._` : ""}${FOOTER}`;
+  const body = `${renderReview(review, { followUp: meta.followUp, extras })}${stale ? `\n\n_Reviewed commit ${meta.base.slice(0, 7)}; the pull request has changed since._` : ""}${FOOTER}`;
   const create = (comments: Review["comments"]) =>
     gh.request(`/repos/${meta.repo}/pulls/${meta.number}/reviews`, {
       method: "POST",

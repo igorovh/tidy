@@ -37,7 +37,13 @@ function prompt(): string {
     .replaceAll("{{repo}}", meta.repo)
     .replaceAll("{{number}}", String(meta.number))
     .replaceAll("{{shell}}", shellNote)
-    .replaceAll("{{extras}}", extras);
+    .replaceAll("{{extras}}", extras)
+    .replaceAll(
+      "{{followup}}",
+      meta.followUp
+        ? "This is a follow-up review. /tidy/context/previous.md is your last review of this pull request, and diff.patch shows only the commits pushed since then. Put earlier findings these commits resolved in \"fixed\", and what is still open or new in \"findings\"."
+        : "",
+    );
 }
 
 function prepareSandbox(): { work: string; stash: string } {
@@ -51,7 +57,7 @@ function prepareSandbox(): { work: string; stash: string } {
   if (task === "triage") mkdirSync(work);
   else cpSync(join(context, "source"), work, { recursive: true, verbatimSymlinks: true });
   for (const name of PROJECT_CONFIG) if (existsSync(join(work, name))) renameSync(join(work, name), join(stash, name));
-  for (const name of ["thread.md", "diff.patch"]) if (existsSync(join(context, name))) cpSync(join(context, name), join(sandbox, "context", name));
+  for (const name of ["thread.md", "diff.patch", "previous.md"]) if (existsSync(join(context, name))) cpSync(join(context, name), join(sandbox, "context", name));
   const checks = join(temp, "checks", "checks.md");
   if (task === "review") writeFileSync(join(sandbox, "context", "checks.md"), existsSync(checks) ? readFileSync(checks) : "No checks are configured.\n");
   writeFileSync(join(sandbox, "context", "prompt.md"), prompt());
@@ -147,7 +153,13 @@ function finishFix(work: string, stash: string, value: Record<string, unknown>):
   }
   let title = typeof value.title === "string" ? singleLine(value.title, 100) : "";
   if (!TITLE.test(title)) title = `fix: ${title || `address issue #${meta.number}`}`.slice(0, 100);
-  const body = typeof value.body === "string" && value.body.trim() ? value.body : "tidy prepared this change.";
+  // tidy lays out the description, so every pull request reads the same way.
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 20) : []);
+  const section = (title: string, entries: string[]) => (entries.length ? `**${title}**\n${entries.map((e) => `- ${e.replace(/\s*\n\s*/g, " ")}`).join("\n")}` : "");
+  const why = typeof value.why === "string" ? value.why.trim() : "";
+  const body =
+    [why, section("What changed", list(value.changes)), section("Checks", list(value.checks))].filter(Boolean).join("\n\n") ||
+    "tidy prepared this change.";
   const git = {
     gitDir: join(temp, "patch.git"),
     workTree: work,

@@ -8,6 +8,7 @@ export interface Target {
   comment_id?: number;
   /** The 👀 reaction the Worker added when the event arrived. */
   reaction?: number;
+  follow_up?: boolean;
 }
 
 export interface Credentials {

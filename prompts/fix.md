@@ -22,5 +22,7 @@ When you are done, write a JSON object to /tidy/out/result.json:
 
 {"implementation": "prepared" or "none",
  "title": "a one-line Conventional Commit title, e.g. fix: keep tab order after restart",
- "body": "Markdown for the pull request: what changed, why, and exactly which checks you ran",
+ "why": "one or two short sentences: what was wrong",
+ "changes": ["one change per item, with the file in backticks"],
+ "checks": ["each check you ran and its result, e.g. `bun test`: 12 pass; or say that no checks were run"],
  "reason": "when implementation is none: a short, friendly explanation for the issue author"}

@@ -40,10 +40,12 @@ export function classify(event: string, payload: Payload, botLogin: string, tidy
     return { ...base, kind: "command", number: payload.issue.number, commentId: payload.comment.id };
   }
   if (event === "pull_request" && payload.pull_request && !payload.pull_request.draft) {
-    if (!["opened", "reopened", "ready_for_review"].includes(payload.action ?? "")) return null;
+    if (!["opened", "reopened", "ready_for_review", "synchronize"].includes(payload.action ?? "")) return null;
     // Other bots (Renovate, Dependabot) are skipped; tidy's own PRs still get a review.
     if (payload.sender.type === "Bot" && !ours) return null;
-    return { ...base, kind: "review", number: payload.pull_request.number };
+    // New commits get a follow-up review of just those commits; the gate checks the repository allows it.
+    const followUp = payload.action === "synchronize" ? { followUp: true } : {};
+    return { ...base, kind: "review", number: payload.pull_request.number, ...followUp };
   }
   return null;
 }

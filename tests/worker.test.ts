@@ -85,6 +85,12 @@ describe("webhooks", () => {
     expect(classify("pull_request", { ...base, action: "opened", sender: human, pull_request: { number: 4, draft: false } }, bot, "alice/tidy")).toMatchObject({ kind: "review" });
   });
 
+  test("new commits start a follow-up review", () => {
+    const push = { ...base, action: "synchronize", sender: human, pull_request: { number: 4, draft: false } };
+    expect(classify("pull_request", push, bot, "alice/tidy")).toMatchObject({ kind: "review", followUp: true });
+    expect(classify("pull_request", { ...push, action: "opened" }, bot, "alice/tidy")).not.toHaveProperty("followUp");
+  });
+
   test("reviews its own pull requests but ignores other bots and itself elsewhere", () => {
     const ownPr = { ...base, action: "opened", sender: { login: bot, type: "Bot" }, pull_request: { number: 4, draft: false } };
     expect(classify("pull_request", ownPr, bot, "alice/tidy")).toMatchObject({ kind: "review" });
@@ -93,11 +99,11 @@ describe("webhooks", () => {
     expect(classify("issue_comment", ownComment, bot, "alice/tidy")).toBeNull();
   });
 
-  test("ignores ordinary comments, drafts, pushes and the tidy repository itself", () => {
+  test("ignores ordinary comments, drafts, closed pull requests and the tidy repository itself", () => {
     const comment = { ...base, action: "created", sender: human, issue: { number: 3, state: "open" }, comment: { id: 9, body: "thanks @tidy", user: human } };
     expect(classify("issue_comment", comment, bot, "alice/tidy")).toBeNull();
     expect(classify("pull_request", { ...base, action: "opened", sender: human, pull_request: { number: 4, draft: true } }, bot, "alice/tidy")).toBeNull();
-    expect(classify("pull_request", { ...base, action: "synchronize", sender: human, pull_request: { number: 4, draft: false } }, bot, "alice/tidy")).toBeNull();
+    expect(classify("pull_request", { ...base, action: "closed", sender: human, pull_request: { number: 4, draft: false } }, bot, "alice/tidy")).toBeNull();
     const own = { ...base, repository: { id: 1, full_name: "Alice/Tidy" }, action: "opened", sender: human, issue: { number: 1, state: "open" } };
     expect(classify("issues", own, bot, "alice/tidy")).toBeNull();
   });

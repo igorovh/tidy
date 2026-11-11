@@ -8,8 +8,10 @@ on:
 
 permissions: {}
 
+# A push during a review cancels it, so a burst of commits gets one review of the latest one.
 concurrency:
-  group: tidy-${{ github.event.client_payload.repo }}-${{ github.event.client_payload.number }}
+  group: tidy-${{ github.event.client_payload.repo }}-${{ github.event.client_payload.number }}-${{ github.event.client_payload.kind }}
+  cancel-in-progress: ${{ github.event.client_payload.kind == 'review' }}
 
 jobs:
   gate:

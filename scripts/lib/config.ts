@@ -29,7 +29,7 @@ export interface Config {
   models: { allowed: string[] };
   triage: { model: string };
   routes: Route[];
-  review: { model: string; deep_model: string; checks: string[]; image: string; extras: Extra[] };
+  review: { model: string; deep_model: string; checks: string[]; image: string; extras: Extra[]; on_push: boolean; max_auto_reviews: number };
   agent: { opencode: string; image: string; timeout_minutes: number };
   limits: { outsider_attempts_per_day: number };
   protected_paths: string[];
@@ -116,7 +116,8 @@ export function parseInstance(raw: unknown): Config {
     models: { allowed: c.models?.allowed ?? [] },
     triage: { model: c.triage?.model },
     routes: parseRoutes(c.routes ?? []),
-    review: { model: c.review?.model, deep_model: c.review?.deep_model ?? c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm", extras: [] },
+    review: { model: c.review?.model, deep_model: c.review?.deep_model ?? c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm", extras: [],
+      on_push: c.review?.on_push !== false, max_auto_reviews: c.review?.max_auto_reviews ?? 5 },
     agent: { opencode: c.agent?.opencode, image: c.agent?.image ?? "node:22-bookworm", timeout_minutes: c.agent?.timeout_minutes ?? 30 },
     limits: { outsider_attempts_per_day: c.limits?.outsider_attempts_per_day ?? 2 },
     protected_paths: c.protected_paths ?? [],
@@ -165,6 +166,12 @@ export function mergeRepo(instance: Config, raw: unknown, warn: (message: string
       checks: (checks as string[] | undefined) ?? instance.review.checks,
       image: (image as string | undefined) ?? instance.review.image,
       extras: parseExtras(repo.review?.extras),
+      on_push: repo.review?.on_push === undefined ? instance.review.on_push : repo.review.on_push !== false,
+      // Like the outsider limit, a repository can only lower this.
+      max_auto_reviews:
+        typeof repo.review?.max_auto_reviews === "number" && repo.review.max_auto_reviews >= 0
+          ? Math.min(repo.review.max_auto_reviews, instance.review.max_auto_reviews)
+          : instance.review.max_auto_reviews,
     },
     protected_paths: [
       ...instance.protected_paths,

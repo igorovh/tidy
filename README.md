@@ -151,8 +151,10 @@ tidy reacts with 👀 as soon as it sees an issue, pull request or command, and 
 has posted its answer, or 😕 with a link to the run when something failed. After opening a pull
 request it also comments on the issue.
 
-New pull requests are reviewed when they open or leave draft. Pushes do not trigger a new review;
-comment `@tidy review` instead.
+New pull requests are reviewed when they open or leave draft. New commits get a follow-up review of
+just those commits, which says what they fixed and what is still open. A push during a review cancels
+it, so a burst of commits gets one review. After `review.max_auto_reviews` reviews (5 by default) a
+pull request is only reviewed on `@tidy review`. Set `review.on_push: false` to turn follow-ups off.
 
 ## Security model
 

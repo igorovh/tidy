@@ -41,6 +41,8 @@ export interface Dispatch {
   installationId: number;
   number: number;
   commentId?: number;
+  /** Set for new commits on an open pull request. */
+  followUp?: boolean;
   /** ID of the 👀 reaction added on arrival, so the run can swap it when done. */
   reaction?: number;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateReview } from "../scripts/lib/review";
+import { renderReview, validateReview } from "../scripts/lib/review";
 import { sanitize } from "../scripts/lib/sanitize";
 
 describe("sanitize", () => {
@@ -85,7 +85,19 @@ describe("validateReview", () => {
       diff,
     );
     expect(review.comments).toEqual([{ path: "src/a.ts", line: 11, body: "check this" }]);
-    expect(review.summary).toContain("far away");
-    expect(review.summary).toContain("not in diff");
+    expect(review.findings.join("\n")).toContain("far away");
+    expect(review.findings.join("\n")).toContain("not in diff");
+  });
+
+  test("the layout puts the verdict first and folds what was checked", () => {
+    const review = validateReview(
+      { verdict: "changes", summary: "Adds stats.", findings: ["`median` mutates its input."], checks: "`bun test` failed.", checked: ["Ran the tests"] },
+      diff,
+    );
+    const body = renderReview(review, { followUp: false, extras: "" });
+    expect(body.startsWith("**⚠️ Needs changes**\n\nAdds stats.")).toBe(true);
+    expect(body).toContain("**Findings**\n- `median` mutates its input.");
+    expect(body).toContain("<details><summary>What I checked</summary>");
+    expect(validateReview({ summary: "x", verdict: "approve" }, diff).verdict).toBe("comments");
   });
 });

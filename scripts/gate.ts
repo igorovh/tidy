@@ -23,6 +23,8 @@ export interface Meta {
   fork: boolean;
   /** Workflows that would run tidy's branch with secrets; non-empty means a maintainer must approve first. */
   secretWorkflows: string[];
+  /** A review of only the commits since tidy's last review; previous.md holds that review. */
+  followUp: boolean;
   /** Names of the review extras whose `when` globs match this pull request. */
   extras: string[];
   config: Config;
@@ -182,6 +184,7 @@ async function main() {
   let fork = false;
   let risky: string[] = [];
   let extras: string[] = [];
+  let followUp = false;
 
   if (task === "triage") {
     if (issue.pull_request) stop("triage runs on issues only");
@@ -208,9 +211,29 @@ async function main() {
     if (pr.draft && target.kind !== "command") stop("draft pull request");
     if (target.kind !== "command" && roles.get(pr.user.login) !== "maintainer") await checkLimit(gh, repo, "pr", pr.user.login, config);
     fork = pr.head.repo?.full_name !== repo;
+    let diffPath = `/repos/${repo}/pulls/${target.number}`;
+    if (target.follow_up) {
+      if (!config.review.on_push) stop("reviews on push are turned off in .github/tidy.yml");
+      const reviews = await gh.paginate<{ user: { login: string } | null; commit_id: string; body: string }>(
+        `/repos/${repo}/pulls/${target.number}/reviews`,
+      );
+      const ours = reviews.filter((r) => r.user?.login === credentials.bot.login);
+      const previous = ours.at(-1);
+      if (previous) {
+        if (ours.length > config.review.max_auto_reviews) stop(`this pull request had ${ours.length} reviews; comment @tidy review for another`);
+        if (previous.commit_id === pr.head.sha) stop("this commit was already reviewed");
+        // After a force-push the old commit is not an ancestor, so the whole pull request is reviewed again.
+        const compare = await gh.request<{ status: string }>(`/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`);
+        if (compare.status === "ahead") {
+          followUp = true;
+          diffPath = `/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`;
+          writeFileSync(join(out, "previous.md"), previous.body.slice(0, 50_000));
+        }
+      }
+    }
     let diff: string;
     try {
-      diff = await gh.request<string>(`/repos/${repo}/pulls/${target.number}`, { accept: "application/vnd.github.diff" });
+      diff = await gh.request<string>(diffPath, { accept: "application/vnd.github.diff" });
     } catch (error) {
       // GitHub refuses diffs over its size limit; review the checkout without inline comments then.
       if (!(error instanceof GitHubError && error.status === 406)) throw error;
@@ -239,6 +262,7 @@ async function main() {
     fork,
     secretWorkflows: risky,
     extras,
+    followUp,
     config,
   };
   writeFileSync(join(out, "meta.json"), JSON.stringify(meta, null, 2));
