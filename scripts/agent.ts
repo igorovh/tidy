@@ -127,8 +127,13 @@ function emit(result: object, patch?: Buffer): void {
 // Arguments go to the command as a list, never through a shell, so only their shape is checked here.
 function emitPlan(value: Record<string, unknown>): void {
   const runs: Record<string, string[]> = {};
-  for (const [name, args] of Object.entries((value.runs ?? {}) as Record<string, unknown>)) {
-    if (!meta.extras.includes(name)) continue;
+  for (const [given, args] of Object.entries((value.runs ?? {}) as Record<string, unknown>)) {
+    // Models often change the case of a name, so match it loosely and store the configured one.
+    const name = meta.extras.find((extra) => extra.toLowerCase() === given.trim().toLowerCase());
+    if (!name) {
+      console.error(`Ignoring arguments for unknown extra ${given}`);
+      continue;
+    }
     if (!Array.isArray(args) || args.length > 40 || !args.every((a) => typeof a === "string" && a.length <= 500 && !a.includes("\0"))) {
       console.error(`Ignoring invalid arguments for ${name}`);
       continue;
