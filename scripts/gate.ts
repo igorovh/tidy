@@ -134,7 +134,7 @@ async function main() {
     if (issue.pull_request) stop("triage runs on issues only");
     if (issue.user.type === "Bot") stop("issue opened by a bot");
     const open = await gh.paginate<{ head: { ref: string; repo: { full_name: string } | null } }>(`/repos/${repo}/pulls?state=open`, 1000);
-    if (open.some((pr) => pr.head.repo?.full_name === repo && pr.head.ref.startsWith(`tidy/issue-${target.number}-`))) {
+    if (open.some((pr) => pr.head.repo?.full_name === repo && /^tidy\/(untrusted\/)?issue-(\d+)-/.exec(pr.head.ref)?.[2] === String(target.number))) {
       stop("a tidy pull request for this issue is already open");
     }
     if (!trusted && !forceFix) {
@@ -155,7 +155,14 @@ async function main() {
     }>(`/repos/${repo}/pulls/${target.number}`);
     if (pr.draft && target.kind !== "command") stop("draft pull request");
     fork = pr.head.repo?.full_name !== repo;
-    const diff = await gh.request<string>(`/repos/${repo}/pulls/${target.number}`, { accept: "application/vnd.github.diff" });
+    let diff: string;
+    try {
+      diff = await gh.request<string>(`/repos/${repo}/pulls/${target.number}`, { accept: "application/vnd.github.diff" });
+    } catch (error) {
+      // GitHub refuses diffs over its size limit; review the checkout without inline comments then.
+      if (!(error instanceof GitHubError && error.status === 406)) throw error;
+      diff = "The diff is too large for the GitHub API. Inspect the changed files in the checkout.\n";
+    }
     writeFileSync(join(out, "diff.patch"), diff.length > MAX_DIFF ? `${diff.slice(0, MAX_DIFF)}\n… diff truncated …\n` : diff);
     writeFileSync(join(out, "thread.md"), thread(`Pull request #${target.number}`, pr, comments, roles));
     base = fetchSource(repo, `refs/pull/${target.number}/head`, credentials.token!, ctx);

@@ -68,12 +68,11 @@ export async function handleWebhook(request: Request, env: Env, origin: string):
   if ((await state.claim(`delivery:${delivery}`, nonce, 86_400_000)) !== nonce) {
     return new Response("duplicate", { status: 202 });
   }
+  const repo = await resolveRepo(env, instance);
   const day = new Date().toISOString().slice(0, 10);
   if (!(await state.take(`runs:${day}`, Number(env.DAILY_RUN_LIMIT ?? 60), 2 * 86_400_000))) {
     return new Response("daily run limit reached", { status: 429 });
   }
-
-  const repo = await resolveRepo(env, instance);
   const dispatchId = b64url(crypto.getRandomValues(new Uint8Array(18)));
   const record: Dispatch = { ...match, installationId: payload.installation!.id };
   await state.put(`dispatch:${dispatchId}`, JSON.stringify(record), 86_400_000);

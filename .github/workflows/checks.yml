@@ -32,3 +32,5 @@ jobs:
           name: checks
           path: ${{ runner.temp }}/checks/checks.md
           retention-days: 1
+          # "Re-run all jobs" uploads again under the same name.
+          overwrite: true

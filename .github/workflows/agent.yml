@@ -64,3 +64,5 @@ jobs:
           name: result-${{ inputs.task }}
           path: ${{ runner.temp }}/result
           retention-days: 1
+          # "Re-run all jobs" uploads again under the same name.
+          overwrite: true
