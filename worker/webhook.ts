@@ -1,5 +1,5 @@
 import { b64url, timingSafeEqual, utf8 } from "../shared/encoding";
-import type { Dispatch, Env } from "./env";
+import type { AppRecord, Dispatch, Env } from "./env";
 import { stateOf } from "./env";
 import { github, installationToken } from "./github";
 import { loadInstance, resolveRepo } from "./instance";
@@ -48,6 +48,21 @@ export function classify(event: string, payload: Payload, botLogin: string, tidy
   return null;
 }
 
+// A 👀 right away tells people tidy saw the event; the run swaps it for 🚀 or 😕 when it ends.
+async function acknowledge(app: AppRecord, dispatch: Dispatch): Promise<number | undefined> {
+  try {
+    const token = await installationToken(app, dispatch.installationId, { issues: "write", pull_requests: "write" }, [dispatch.repoId]);
+    const subject = dispatch.commentId
+      ? `/repos/${dispatch.repo}/issues/comments/${dispatch.commentId}/reactions`
+      : `/repos/${dispatch.repo}/issues/${dispatch.number}/reactions`;
+    const reaction = await github<{ id: number }>(subject, { token: token.token, method: "POST", body: { content: "eyes" } });
+    return reaction.id;
+  } catch (error) {
+    console.error("Could not add the reaction", error);
+    return undefined;
+  }
+}
+
 let dispatchToken: { token: string; exp: number } | undefined;
 
 export async function handleWebhook(request: Request, env: Env, origin: string): Promise<Response> {
@@ -75,6 +90,7 @@ export async function handleWebhook(request: Request, env: Env, origin: string):
   }
   const dispatchId = b64url(crypto.getRandomValues(new Uint8Array(18)));
   const record: Dispatch = { ...match, installationId: payload.installation!.id };
+  record.reaction = await acknowledge(instance.app, record);
   await state.put(`dispatch:${dispatchId}`, JSON.stringify(record), 86_400_000);
 
   if (!dispatchToken || dispatchToken.exp - 300_000 < Date.now()) {

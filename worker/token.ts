@@ -34,7 +34,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
   }
   const dispatch = JSON.parse(raw) as Dispatch;
 
-  const target = { kind: dispatch.kind, repo: dispatch.repo, number: dispatch.number, comment_id: dispatch.commentId };
+  const target = { kind: dispatch.kind, repo: dispatch.repo, number: dispatch.number, comment_id: dispatch.commentId, reaction: dispatch.reaction };
   let credentials: Record<string, unknown>;
   if (role === "agent") {
     credentials = { keys: Object.fromEntries(Object.entries(instance.keys).map(([name, key]) => [name, key.value])) };

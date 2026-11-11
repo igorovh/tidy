@@ -6,6 +6,8 @@ export interface Target {
   repo: string;
   number: number;
   comment_id?: number;
+  /** The 👀 reaction the Worker added when the event arrived. */
+  reaction?: number;
 }
 
 export interface Credentials {

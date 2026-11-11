@@ -14,7 +14,7 @@ catch. If the checks failed, explain the cause. Say plainly when the change look
 
 Write a JSON object to /tidy/out/result.json and make no other changes:
 
-{"summary": "Markdown overview: verdict, main findings, what the checks showed",
+{"summary": "Markdown: one sentence on whether the change is ready, then the main findings, then what the checks showed",
  "comments": [{"path": "file path as in the diff", "line": <line number in the new file>, "body": "finding and suggested fix"}]}
 
 Only comment on lines that appear in the diff. Use at most 20 comments.

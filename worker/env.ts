@@ -41,6 +41,8 @@ export interface Dispatch {
   installationId: number;
   number: number;
   commentId?: number;
+  /** ID of the 👀 reaction added on arrival, so the run can swap it when done. */
+  reaction?: number;
 }
 
 export const stateOf = (env: Env) => env.STATE.get(env.STATE.idFromName("tidy"));

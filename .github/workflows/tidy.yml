@@ -72,7 +72,8 @@ jobs:
 
   publish:
     needs: [gate, triage, fix, reply, review]
-    if: always() && needs.gate.result == 'success' && needs.gate.outputs.task != 'none'
+    # Always runs, so the 👀 reaction is resolved even when tidy skips the event or fails.
+    if: always()
     uses: ./.github/workflows/publish.yml
     permissions:
       actions: read
@@ -83,3 +84,4 @@ jobs:
       patch-sha: ${{ needs.gate.outputs.patch-sha }}
       approver: ${{ needs.gate.outputs.approver }}
       proposal: ${{ needs.gate.outputs.proposal }}
+      failed: ${{ contains(needs.*.result, 'failure') }}

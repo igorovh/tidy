@@ -26,7 +26,10 @@ function prompt(): string {
   const shellNote = shell
     ? "You have a shell. Install dependencies and run the project's checks before you finish."
     : "You have no shell. Edit files only and say in the pull request body that no checks were run; CI will run them.";
-  return readFileSync(join(env("TIDY_ROOT"), "prompts", `${task}.md`), "utf8")
+  const read = (name: string) => readFileSync(join(env("TIDY_ROOT"), "prompts", `${name}.md`), "utf8");
+  // Triage only answers with JSON, so it needs no writing style.
+  const text = task === "triage" ? read(task) : `${read(task)}\n${read("style")}`;
+  return text
     .replaceAll("{{repo}}", meta.repo)
     .replaceAll("{{number}}", String(meta.number))
     .replaceAll("{{shell}}", shellNote);

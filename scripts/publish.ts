@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { env, notice } from "./lib/actions";
-import { requestCredentials } from "./lib/credentials";
+import { type Credentials, requestCredentials, type Target } from "./lib/credentials";
 import { client, GitHubError, type GitHubClient } from "./lib/github";
 import { applyPatch, git } from "./lib/patch";
 import { type Review, validateReview } from "./lib/review";
@@ -18,8 +18,8 @@ const MODEL = /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9._:/-]+(#[a-z0-9-]+)?$/;
 let FOOTER = footer();
 
 function footer(model?: string): string {
-  const by = model && MODEL.test(model) ? ` · model \`${model}\`` : "";
-  return `\n\n<sub>✨ Powered by [tidy](https://github.com/igorovh/tidy)${by} · AI-written, it can be wrong; a maintainer decides what to merge.</sub>`;
+  const by = model && MODEL.test(model) ? ` | Model: \`${model}\`` : "";
+  return `\n\n---\n✨ Powered by [tidy](https://github.com/igorovh/tidy)${by}`;
 }
 
 type Result = { type: "comment"; body: string } | { type: "pr"; title: string; body: string } | ({ type: "review" } & Review);
@@ -144,6 +144,13 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
       })
       .catch((error: Error) => notice(`Could not update the proposal comment: ${error.message}`));
   }
+  if (!approver) {
+    const summary = sanitize(result.body.split(/\n\s*\n/)[0] ?? "", 800);
+    await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, {
+      method: "POST",
+      body: { body: `I opened #${pr.number} with a fix: **${title}**\n\n${summary}${FOOTER}` },
+    });
+  }
   notice(`Opened ${pr.html_url}`);
 }
 
@@ -165,19 +172,14 @@ async function postReview(gh: GitHubClient, meta: Meta, review: Review) {
   }
 }
 
-async function main() {
-  if (!existsSync(join(resultDir, "result.json"))) {
-    notice("Nothing to publish");
-    return;
-  }
+async function publish(gh: GitHubClient, credentials: Credentials): Promise<boolean> {
+  if (!existsSync(join(resultDir, "result.json"))) return false;
   const meta = readJson<Meta>(join(temp, "context", "meta.json"), 1_000_000);
   const result = readJson<Result>(join(resultDir, "result.json"), 2_000_000);
   FOOTER = footer((result as { model?: string }).model);
-  const credentials = await requestCredentials("write");
   const { target } = credentials;
   // The Worker's record of the dispatch, not the artifact, says where this run may write.
   if (target.repo.toLowerCase() !== meta.repo.toLowerCase() || target.number !== meta.number) throw new Error("Artifact does not match the dispatch");
-  const gh = client(credentials.token!);
 
   if (result.type === "comment") {
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${sanitize(result.body)}${FOOTER}` } });
@@ -191,6 +193,38 @@ async function main() {
   } else {
     throw new Error("Unknown result type");
   }
+  return true;
+}
+
+async function react(gh: GitHubClient, target: Target, content: "rocket" | "confused" | null): Promise<void> {
+  const subject = target.comment_id
+    ? `/repos/${target.repo}/issues/comments/${target.comment_id}/reactions`
+    : `/repos/${target.repo}/issues/${target.number}/reactions`;
+  const quiet = (error: Error) => notice(`Could not update the reaction: ${error.message}`);
+  if (target.reaction) await gh.request(`${subject}/${target.reaction}`, { method: "DELETE" }).catch(quiet);
+  if (content) await gh.request(subject, { method: "POST", body: { content } }).catch(quiet);
+}
+
+// Always runs last: it swaps the 👀 the Worker added for 🚀, or reports a failure instead of staying silent.
+async function main() {
+  const credentials = await requestCredentials("write");
+  const gh = client(credentials.token!);
+  const failed = process.env.FAILED === "true";
+  let posted = false;
+  try {
+    posted = await publish(gh, credentials);
+  } catch (error) {
+    await react(gh, credentials.target, "confused");
+    throw error;
+  }
+  if (failed && !posted) {
+    const run = `${env("GITHUB_SERVER_URL")}/${env("GITHUB_REPOSITORY")}/actions/runs/${env("GITHUB_RUN_ID")}`;
+    await gh.request(`/repos/${credentials.target.repo}/issues/${credentials.target.number}/comments`, {
+      method: "POST",
+      body: { body: `tidy stopped because of an error, so nothing was changed. [See the run](${run}).${FOOTER}` },
+    });
+  }
+  await react(gh, credentials.target, failed && !posted ? "confused" : posted ? "rocket" : null);
 }
 
 await main();

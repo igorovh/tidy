@@ -118,6 +118,10 @@ Comment on an issue or pull request. Only people with write access can run comma
 | `@tidy review` | Review the pull request again |
 | `@tidy review deep` | Review with `review.deep_model` |
 
+tidy reacts with 👀 as soon as it sees an issue, pull request or command, and swaps it for 🚀 when it
+has posted its answer, or 😕 with a link to the run when something failed. After opening a pull
+request it also comments on the issue.
+
 New pull requests are reviewed when they open or leave draft. Pushes do not trigger a new review;
 comment `@tidy review` instead.
 
