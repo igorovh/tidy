@@ -1,0 +1,54 @@
+name: tidy gate
+
+# The Worker only grants read credentials to this file. It runs tidy's own code, never the target's.
+on:
+  workflow_call:
+    outputs:
+      task:
+        value: ${{ jobs.gate.outputs.task }}
+      trusted:
+        value: ${{ jobs.gate.outputs.trusted }}
+      triage-model:
+        value: ${{ jobs.gate.outputs.triage-model }}
+      review-model:
+        value: ${{ jobs.gate.outputs.review-model }}
+      checks:
+        value: ${{ jobs.gate.outputs.checks }}
+
+permissions: {}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      task: ${{ steps.gate.outputs.task }}
+      trusted: ${{ steps.gate.outputs.trusted }}
+      triage-model: ${{ steps.gate.outputs.triage-model }}
+      review-model: ${{ steps.gate.outputs.review-model }}
+      checks: ${{ steps.gate.outputs.checks }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tidy
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - id: gate
+        env:
+          TIDY_ROOT: tidy
+        run: bun tidy/scripts/gate.ts
+      # A tar keeps symlinks from the target repository as links instead of following them.
+      - if: steps.gate.outputs.task != 'none'
+        run: tar -cf "$RUNNER_TEMP/context.tar" -C "$RUNNER_TEMP" context
+      - if: steps.gate.outputs.task != 'none'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: context
+          path: ${{ runner.temp }}/context.tar
+          retention-days: 1
+          if-no-files-found: error

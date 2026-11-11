@@ -1,0 +1,66 @@
+name: tidy agent
+
+# The Worker grants only model keys to this file, never a GitHub token. OpenCode runs in a container
+# that sees the workspace, the snapshot and its result file, but not the runner or its tokens.
+on:
+  workflow_call:
+    inputs:
+      task:
+        type: string
+        required: true
+      model:
+        type: string
+        required: true
+      shell:
+        type: boolean
+        default: false
+    outputs:
+      action:
+        value: ${{ jobs.agent.outputs.action }}
+      model:
+        value: ${{ jobs.agent.outputs.model }}
+
+permissions: {}
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      action: ${{ steps.agent.outputs.action }}
+      model: ${{ steps.agent.outputs.model }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tidy
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: context
+          path: ${{ runner.temp }}
+      - if: inputs.task == 'review'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: checks
+          path: ${{ runner.temp }}/checks
+      - run: tar -xf "$RUNNER_TEMP/context.tar" -C "$RUNNER_TEMP"
+      - id: agent
+        env:
+          TIDY_ROOT: tidy
+          TASK: ${{ inputs.task }}
+          MODEL: ${{ inputs.model }}
+          SHELL_ALLOWED: ${{ inputs.shell }}
+        run: bun tidy/scripts/agent.ts
+      - if: steps.agent.outputs.result == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result-${{ inputs.task }}
+          path: ${{ runner.temp }}/result
+          retention-days: 1

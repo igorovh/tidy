@@ -1,0 +1,79 @@
+name: tidy
+run-name: tidy ${{ github.event.client_payload.kind }} ${{ github.event.client_payload.repo }}#${{ github.event.client_payload.number }}
+
+# Started only by the tidy Worker. Credentials come from the Worker per job, so this repository has no secrets.
+on:
+  repository_dispatch:
+    types: [tidy]
+
+permissions: {}
+
+concurrency:
+  group: tidy-${{ github.event.client_payload.repo }}-${{ github.event.client_payload.number }}
+
+jobs:
+  gate:
+    uses: ./.github/workflows/gate.yml
+    permissions:
+      contents: read
+      id-token: write
+
+  triage:
+    needs: gate
+    if: needs.gate.outputs.task == 'triage'
+    uses: ./.github/workflows/agent.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      task: triage
+      model: ${{ needs.gate.outputs.triage-model }}
+
+  fix:
+    needs: [gate, triage]
+    if: needs.triage.outputs.action == 'fix'
+    uses: ./.github/workflows/agent.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      task: fix
+      model: ${{ needs.triage.outputs.model }}
+      shell: ${{ needs.gate.outputs.trusted == 'true' }}
+
+  reply:
+    needs: [gate, triage]
+    if: needs.triage.outputs.action == 'reply'
+    uses: ./.github/workflows/agent.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      task: reply
+      model: ${{ needs.triage.outputs.model }}
+
+  checks:
+    needs: gate
+    if: needs.gate.outputs.task == 'review' && needs.gate.outputs.checks == 'true'
+    uses: ./.github/workflows/checks.yml
+    permissions:
+      contents: read
+
+  review:
+    needs: [gate, checks]
+    if: always() && needs.gate.outputs.task == 'review' && needs.checks.result != 'cancelled'
+    uses: ./.github/workflows/agent.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      task: review
+      model: ${{ needs.gate.outputs.review-model }}
+
+  publish:
+    needs: [gate, triage, fix, reply, review]
+    if: always() && needs.gate.result == 'success' && needs.gate.outputs.task != 'none'
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      contents: read
+      id-token: write
