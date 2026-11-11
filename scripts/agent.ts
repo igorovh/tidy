@@ -1,6 +1,6 @@
 // Runs OpenCode for one task inside a container that sees only the workspace, the snapshot and its output file.
 import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { env, setOutput } from "./lib/actions";
 import { parseTriage, route } from "./lib/config";
@@ -96,7 +96,7 @@ function runContainer(work: string, keys: Record<string, string>): void {
 
 function readResult(): Record<string, unknown> {
   const file = join(sandbox, "out", "result.json");
-  if (!existsSync(file) || statSync(file).size > 200_000) throw new Error("The agent did not write a usable result");
+  if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > 200_000) throw new Error("The agent did not write a usable result");
   const value = JSON.parse(readFileSync(file, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The agent result is not an object");
   return value;

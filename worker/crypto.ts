@@ -10,7 +10,7 @@ let cached: { master: string; keys: Promise<Keys> } | undefined;
 export function deriveKeys(master: string): Promise<Keys> {
   if (cached?.master === master) return cached.keys;
   const keys = (async () => {
-    const raw = fromB64url(master);
+    const raw = fromB64url(master.trim());
     if (raw.length < 32) throw new Error("TIDY_MASTER_KEY must be at least 32 random bytes");
     const material = await crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveKey"]);
     const derive = (info: string, algorithm: { name: string; length: number; hash?: string }, usages: ("encrypt" | "decrypt" | "sign" | "verify")[]) =>

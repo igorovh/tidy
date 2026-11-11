@@ -12,7 +12,7 @@ that receives GitHub webhooks and holds the keys. The agent is [OpenCode](https:
 ```text
 GitHub event ──▶ Worker ──repository_dispatch──▶ tidy workflows in your tidy repository
 (issue, PR,       checks the signature,           gate     reads the thread, decides trust, snapshots the code
- @tidy comment)   holds the App key and           triage   a model with no tools labels the issue
+ @tidy comment)   holds the App key and           triage   a model with no tools classifies the issue
                   model keys                      fix / reply / review   OpenCode in a container
                       ▲                           checks   your repo's tests, no credentials at all
                       └── per-job credentials ─── publish  the only job with write access
@@ -48,8 +48,20 @@ You need a GitHub account, a free Cloudflare account and a model key, for exampl
 In every repository tidy should open pull requests in, import
 [`rulesets/default-branch.json`](rulesets/default-branch.json) under **Settings → Rules → Rulesets →
 Import a ruleset**. It requires an approved pull request for the default branch, so the App can only
-propose changes. tidy refuses to push where no such rule exists. Also set **Settings → Actions →
-Workflow permissions** to read-only, because pull requests from tidy run your CI like any branch.
+propose changes. tidy refuses to push where no such rule exists; classic branch protection is not
+detected, because reading it needs admin access.
+
+Pull requests from tidy are branches in your repository, so your CI runs on them with your secrets.
+When an issue thread includes text from people without write access, tidy pushes to
+`tidy/untrusted/…` instead of `tidy/…`. Keep secrets away from those branches, for example:
+
+```yaml
+jobs:
+  deploy-preview:
+    if: ${{ !startsWith(github.head_ref, 'tidy/untrusted/') }}
+```
+
+Also set **Settings → Actions → Workflow permissions** to read-only.
 
 ### Adding repositories
 
@@ -107,9 +119,12 @@ tidy assumes the model can be talked into anything, and limits what it can do in
 - **Patches are checked twice.** After the agent and again in `publish.yml`, using a git directory the
   agent never saw: no protected paths (`.github/`, `opencode.json`, `.npmrc` and more), no symlinks or
   submodules, at most 100 files and 5 MB. Patches are staged with `git apply --cached` and never run.
-- **Output is cleaned.** Mentions, images, HTML and links outside GitHub are removed from everything
-  tidy posts, and closing keywords cannot close other issues.
-- **Abuse limits.** People without write access get at most two fix attempts per day, and the Worker
+- **Output is cleaned.** Mentions, images, HTML other than a few formatting tags, and links outside
+  GitHub (including `//host` and `www.` links) are removed from everything tidy posts, and closing
+  keywords cannot close other issues.
+- **Untrusted fixes are marked.** They get a `tidy/untrusted/` branch, a `tidy: untrusted` label and a
+  warning in the pull request, so CI and reviewers can treat them differently.
+- **Abuse limits.** tidy skips fixes for people without write access after two issues from them in a day, and the Worker
   caps workflow runs per day (`DAILY_RUN_LIMIT` in `wrangler.jsonc`).
 - **The Worker** verifies webhook signatures, stores keys encrypted with a master key kept as a
   Worker secret, and protects `/admin` with GitHub sign-in (PKCE, admins of the tidy repository only,

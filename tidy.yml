@@ -59,6 +59,9 @@ protected_paths:
   - .yarnrc.yml
   - bunfig.toml
   - .tagpr
+  - .devcontainer/
+  - action.yml
+  - action.yaml
 
 security_notice: >-
   Thanks for the report. Please do not share security details in public issues. Use this

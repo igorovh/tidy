@@ -59,7 +59,9 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
   ].join("\n");
   const identity = ["-c", `user.name=${bot}`, "-c", `user.email=${botUser.id}+${bot}@users.noreply.github.com`, "-c", "commit.gpgsign=false"];
   git(ctx, [...identity, "commit", "--quiet", "--no-verify", "-F", "-"], message);
-  const branch = `tidy/issue-${meta.number}-${env("GITHUB_RUN_ID")}-${env("GITHUB_RUN_ATTEMPT")}`;
+  // Repositories can keep secret-bearing CI jobs off `tidy/untrusted/` branches (see README).
+  const prefix = meta.trusted ? "tidy" : "tidy/untrusted";
+  const branch = `${prefix}/issue-${meta.number}-${env("GITHUB_RUN_ID")}-${env("GITHUB_RUN_ATTEMPT")}`;
   const auth = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
   // A fresh branch name per attempt; tidy never force-pushes or touches existing branches.
   git(ctx, ["-c", `http.extraheader=${auth}`, "push", "--quiet", `https://github.com/${meta.repo}.git`, `HEAD:refs/heads/${branch}`]);
@@ -75,10 +77,14 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
       draft: false,
     },
   });
-  await gh.request(`/repos/${meta.repo}/issues/${pr.number}/labels`, {
-    method: "POST",
-    body: { labels: meta.trusted ? ["tidy"] : ["tidy", "tidy: untrusted"] },
-  });
+  try {
+    await gh.request(`/repos/${meta.repo}/issues/${pr.number}/labels`, {
+      method: "POST",
+      body: { labels: meta.trusted ? ["tidy"] : ["tidy", "tidy: untrusted"] },
+    });
+  } catch (error) {
+    notice(`Could not label ${pr.html_url}: ${(error as Error).message}`);
+  }
   notice(`Opened ${pr.html_url}`);
 }
 
