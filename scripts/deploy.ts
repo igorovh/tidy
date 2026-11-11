@@ -1,5 +1,6 @@
 // Deploys the Worker, creates TIDY_MASTER_KEY on first run, and prints the one-time setup link.
 import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { b64url, utf8 } from "../shared/encoding";
 
 const resetKey = process.argv.includes("--reset-key");
@@ -18,6 +19,8 @@ function originRepo(): string {
 const deployed = wrangler(["deploy"]);
 process.stdout.write(deployed);
 const url = deployed.match(/https:\/\/[^\s]+\.workers\.dev/)?.[0];
+// `bun run protect` reads the Worker address from here; it is not secret, just local.
+if (url) writeFileSync(".tidy.json", `${JSON.stringify({ worker: url }, null, 2)}\n`);
 
 const secrets = JSON.parse(wrangler(["secret", "list", "--format", "json"]) || "[]") as { name: string }[];
 if (secrets.some((secret) => secret.name === "TIDY_MASTER_KEY") && !resetKey) {

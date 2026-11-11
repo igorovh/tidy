@@ -122,7 +122,7 @@ async function callback(request: Request, env: Env, instance: Instance, origin: 
   return response;
 }
 
-async function isAdmin(env: Env, instance: Instance, login: string): Promise<boolean> {
+export async function isAdmin(env: Env, instance: Instance, login: string): Promise<boolean> {
   const repo = await resolveRepo(env, instance);
   const token = await installationToken(instance.app, repo.installationId, { metadata: "read" }, [repo.id]);
   try {

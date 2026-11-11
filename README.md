@@ -45,13 +45,28 @@ You need a GitHub account, a free Cloudflare account and a model key, for exampl
 5. Open `https://<your-worker>/admin`, sign in with GitHub and save your model key, for example as
    `OPENCODE_API_KEY`.
 
-In every repository tidy should open pull requests in, import
-[`rulesets/default-branch.json`](rulesets/default-branch.json) under **Settings → Rules → Rulesets →
-Import a ruleset**. It requires an approved pull request for the default branch, so the App can only
-propose changes. tidy refuses to push where no such rule exists; classic branch protection is not
-detected, because reading it needs admin access.
+### Protect your default branches (recommended)
 
-Also set **Settings → Actions → Workflow permissions** to read-only.
+The App needs write access to push pull request branches, and GitHub would let that access merge or
+push to your default branch too. tidy never does, but a ruleset that requires an approved pull
+request makes it impossible. Add it to many repositories at once with your own `gh` login:
+
+```sh
+bun run protect                                  # pick repositories interactively
+bun run protect -- --repo you/app --apply        # one repository, no prompts
+```
+
+The picker lists your repositories, marks the ones tidy is installed on (it asks your Worker, which
+checks with your `gh` token that you administer the tidy repository), and lets you choose all of
+them, only those with tidy, or pick by typing to filter and pressing space. It shows a plan and asks
+before changing anything. It skips forks, archived repositories and repositories that already
+require an approval, never changes your existing rulesets, and gives Renovate a bypass where
+Renovate automerges. Admins of a
+repository can still merge their own pull requests. Run it again after creating new repositories.
+
+Without the ruleset, tidy still opens pull requests and adds a note with the command. Set
+`require_ruleset: true` in `tidy.yml` to make tidy refuse instead. tidy cannot add rulesets itself,
+because that needs an administration permission much broader than the one it protects against.
 
 ### Fixes for outside issues
 
@@ -109,7 +124,7 @@ tidy assumes the model can be talked into anything, and limits what it can do in
 
 - **Write access lives in one place.** Only `publish.yml` gets a token that can write, and it runs
   tidy's code on artifacts, never repository or agent code. The App has no `workflows` permission, so
-  it cannot change CI, and the ruleset keeps it from merging or pushing to the default branch.
+  it cannot change CI, and the recommended ruleset keeps it from merging or pushing to the default branch.
   Reviews are always posted as comments, so tidy cannot satisfy a required approval.
 - **The agent runs in a container** that sees the workspace, a snapshot of the thread and its result
   file. It has no GitHub token, and the runner's OIDC and artifact tokens are not passed in.

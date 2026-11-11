@@ -104,7 +104,8 @@ function readResult(): Record<string, unknown> {
 
 function emit(result: object, patch?: Buffer): void {
   mkdirSync(resultDir, { recursive: true });
-  writeFileSync(join(resultDir, "result.json"), JSON.stringify(result));
+  // The model goes into the footer of whatever tidy posts.
+  writeFileSync(join(resultDir, "result.json"), JSON.stringify({ ...result, model }));
   if (patch) writeFileSync(join(resultDir, "patch.diff"), patch);
   setOutput("result", "true");
 }

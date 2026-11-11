@@ -1,4 +1,5 @@
 import { handleAdmin } from "./admin";
+import { handleRepos } from "./api";
 import type { Env } from "./env";
 import { page } from "./html";
 import { handleSetup, handleSetupCallback } from "./setup";
@@ -14,6 +15,7 @@ export default {
     try {
       if (url.pathname === "/webhook" && request.method === "POST") return await handleWebhook(request, env, origin);
       if (url.pathname === "/token" && request.method === "POST") return await handleToken(request, env);
+      if (url.pathname === "/api/repos" && request.method === "GET") return await handleRepos(request, env);
       if (url.pathname === "/setup" && request.method === "GET") return await handleSetup(request, env, origin);
       if (url.pathname === "/setup/callback" && request.method === "GET") return await handleSetupCallback(request, env);
       if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return await handleAdmin(request, env, origin);

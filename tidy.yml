@@ -63,6 +63,11 @@ protected_paths:
   - action.yml
   - action.yaml
 
+# Pull requests from tidy are safest when the default branch requires an approved pull request, so
+# the App cannot merge or push on its own. `bun run protect` adds that ruleset to your repositories.
+# With true, tidy refuses to push where it is missing; with false it pushes and notes it in the PR.
+require_ruleset: false
+
 security_notice: >-
   Thanks for the report. Please do not share security details in public issues. Use this
   repository's private vulnerability reporting (Security → Report a vulnerability) instead,

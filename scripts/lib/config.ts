@@ -21,6 +21,7 @@ export interface Config {
   limits: { outsider_attempts_per_day: number };
   protected_paths: string[];
   security_notice: string;
+  require_ruleset: boolean;
 }
 
 const MODEL = /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:/-]*(#[a-z0-9-]+)?$/;
@@ -64,6 +65,7 @@ export function parseInstance(raw: unknown): Config {
     limits: { outsider_attempts_per_day: c.limits?.outsider_attempts_per_day ?? 2 },
     protected_paths: c.protected_paths ?? [],
     security_notice: c.security_notice ?? "",
+    require_ruleset: c.require_ruleset === true,
   };
   for (const model of [config.triage.model, config.review.model, config.review.deep_model, ...config.routes.map((r) => r.model)]) {
     if (model !== undefined && !modelAllowed(config, model)) throw new Error(`Model ${model} is not in models.allowed`);

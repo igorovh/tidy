@@ -14,7 +14,13 @@ import type { Meta } from "./gate";
 
 const temp = env("RUNNER_TEMP");
 const resultDir = join(temp, "result");
-const FOOTER = "\n\n<sub>Written by tidy, an AI agent. It can be wrong; a maintainer decides what to merge.</sub>";
+const MODEL = /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9._:/-]+(#[a-z0-9-]+)?$/;
+let FOOTER = footer();
+
+function footer(model?: string): string {
+  const by = model && MODEL.test(model) ? ` · model \`${model}\`` : "";
+  return `\n\n<sub>✨ Powered by [tidy](https://github.com/igorovh/tidy)${by} · AI-written, it can be wrong; a maintainer decides what to merge.</sub>`;
+}
 
 type Result = { type: "comment"; body: string } | { type: "pr"; title: string; body: string } | ({ type: "review" } & Review);
 
@@ -68,15 +74,20 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
   } else if (!meta.trusted && meta.secretWorkflows.length > 0) {
     return proposeForApproval(gh, meta, result, patch);
   }
-  if (!(await protectedBranch(gh, meta))) {
+  const guarded = await protectedBranch(gh, meta);
+  const protect = `\`bun run protect -- --repo ${meta.repo} --apply\` in your tidy repository`;
+  if (!guarded && meta.config.require_ruleset) {
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, {
       method: "POST",
       body: {
-        body: `tidy prepared a fix but did not push it: \`${meta.defaultBranch}\` has no ruleset that requires an approved pull request, so tidy's write access would not be limited to proposals. Import \`rulesets/default-branch.json\` from the tidy repository, then comment \`@tidy fix\`.${FOOTER}`,
+        body: `tidy prepared a fix but did not push it: \`${meta.defaultBranch}\` has no ruleset that requires an approved pull request, and this tidy instance requires one. Run ${protect}, then comment \`@tidy fix\`.${FOOTER}`,
       },
     });
     return;
   }
+  const unguarded = guarded
+    ? ""
+    : `\n\n> [!NOTE]\n> \`${meta.defaultBranch}\` does not require an approved pull request, so GitHub would not stop tidy from merging. tidy never does, but you can make it impossible: run ${protect}.`;
   // The patch must still apply to a commit that is part of the default branch's history.
   const compare = await gh.request<{ status: string }>(`/repos/${meta.repo}/compare/${meta.base}...${encodeURIComponent(meta.defaultBranch)}`);
   if (!["ahead", "identical"].includes(compare.status)) throw new Error(`Base ${meta.base} is no longer on ${meta.defaultBranch}`);
@@ -112,7 +123,7 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
       title,
       head: branch,
       base: meta.defaultBranch,
-      body: `${sanitize(result.body)}${origin}\n\nChanged files: ${files.length}\n\nCloses #${meta.number}${FOOTER}`,
+      body: `${sanitize(result.body)}${origin}${unguarded}\n\nChanged files: ${files.length}\n\nCloses #${meta.number}${FOOTER}`,
       draft: false,
     },
   });
@@ -161,6 +172,7 @@ async function main() {
   }
   const meta = readJson<Meta>(join(temp, "context", "meta.json"), 1_000_000);
   const result = readJson<Result>(join(resultDir, "result.json"), 2_000_000);
+  FOOTER = footer((result as { model?: string }).model);
   const credentials = await requestCredentials("write");
   const { target } = credentials;
   // The Worker's record of the dispatch, not the artifact, says where this run may write.
