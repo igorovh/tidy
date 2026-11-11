@@ -27,5 +27,7 @@ Write a JSON object to /tidy/out/result.json and make no other changes:
  "checked": ["short items: what you verified, so the author knows what was covered"],
  "comments": [{"path": "file path as in the diff", "line": <line number in the new file>, "body": "finding and suggested fix"}]}
 
-Leave a list empty when there is nothing to put in it. Only comment on lines that appear in the diff.
+Readers never see tidy's files, so do not name them: write "the description", "the checks" or "your
+last review" instead of thread.md, checks.md, diff.patch or previous.md. Do not mention extras or
+recordings that were not configured. Leave a list empty when there is nothing to put in it. Only comment on lines that appear in the diff.
 Use at most 20 comments. Every finding with an inline comment also belongs in "findings", in one line.
