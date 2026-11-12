@@ -23,7 +23,11 @@ interface Payload {
   issue?: { number: number; pull_request?: unknown; state: string; author_association?: string };
   comment?: { id: number; body: string; user: { type: string }; author_association?: string };
   pull_request?: { number: number; draft: boolean; author_association?: string };
+  label?: { name: string };
 }
+
+/** Adding this label asks tidy to review a pull request it would skip, such as one from Renovate. */
+export const REVIEW_LABEL = "tidy:review";
 
 // GitHub's own view of someone's relation to the repository; the gate checks write access again.
 const MAINTAINERS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
@@ -51,6 +55,11 @@ export function classify(event: string, payload: Payload, botLogin: string, tidy
     return { ...base, kind: "command", number: payload.issue.number, commentId: payload.comment.id, trusted: true };
   }
   if (event === "pull_request" && payload.pull_request && !payload.pull_request.draft) {
+    // Labelling needs triage access, so a labelled request counts like a maintainer's command.
+    if (payload.action === "labeled") {
+      if (payload.label?.name !== REVIEW_LABEL) return null;
+      return { ...base, kind: "review", number: payload.pull_request.number, requested: true, trusted: true };
+    }
     if (!["opened", "reopened", "ready_for_review", "synchronize"].includes(payload.action ?? "")) return null;
     // Other bots (Renovate, Dependabot) are skipped; tidy's own PRs still get a review.
     if (payload.sender.type === "Bot" && !ours) return null;
@@ -148,6 +157,7 @@ export async function handleWebhook(request: Request, env: Env, origin: string):
     installationId: payload.installation!.id,
     ...(match.commentId ? { commentId: match.commentId } : {}),
     ...(match.followUp ? { followUp: true } : {}),
+    ...(match.requested ? { requested: true } : {}),
   };
   record.reaction = await acknowledge(instance.app, record);
   await state.put(`dispatch:${dispatchId}`, JSON.stringify(record), 86_400_000);

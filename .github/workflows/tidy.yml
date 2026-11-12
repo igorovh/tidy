@@ -20,6 +20,18 @@ jobs:
       contents: read
       id-token: write
 
+  # Tells the issue tidy is on it, with a link to this run, while the agent works.
+  announce:
+    needs: gate
+    if: needs.gate.outputs.task == 'triage'
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    with:
+      announce: true
+
   # Triage, then the fix or reply its route picks, in one job so the model key is fetched once.
   issue:
     needs: gate
@@ -65,7 +77,7 @@ jobs:
       model: ${{ needs.gate.outputs.review-model }}
 
   publish:
-    needs: [gate, issue, review]
+    needs: [gate, announce, issue, review]
     # Always runs, so the 👀 reaction is resolved even when tidy skips the event or fails.
     if: always()
     uses: ./.github/workflows/publish.yml

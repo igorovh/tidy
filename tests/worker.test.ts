@@ -90,6 +90,13 @@ describe("webhooks", () => {
     expect(classify("pull_request", { ...base, action: "opened", sender: human, pull_request: { number: 4, draft: false } }, bot, "alice/tidy")).toMatchObject({ kind: "review" });
   });
 
+  test("the tidy:review label asks for a review of any pull request, even a bot's", () => {
+    const labeled = (name: string) =>
+      classify("pull_request", { ...base, action: "labeled", sender: { login: "renovate[bot]", type: "Bot" }, label: { name }, pull_request: { number: 7, draft: false } }, bot, "alice/tidy");
+    expect(labeled("tidy:review")).toMatchObject({ kind: "review", number: 7, requested: true, trusted: true });
+    expect(labeled("dependencies")).toBeNull();
+  });
+
   test("commands from people without write access are dropped before they use up a run", () => {
     const comment = (author_association: string) =>
       classify(

@@ -34,7 +34,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
   if ("error" in redeemed) return deny(redeemed.error);
   const dispatch = JSON.parse(redeemed.dispatch) as Dispatch;
 
-  const target = { kind: dispatch.kind, repo: dispatch.repo, number: dispatch.number, comment_id: dispatch.commentId, reaction: dispatch.reaction, follow_up: dispatch.followUp };
+  const target = { kind: dispatch.kind, repo: dispatch.repo, number: dispatch.number, comment_id: dispatch.commentId, reaction: dispatch.reaction, follow_up: dispatch.followUp, requested: dispatch.requested };
   let credentials: Record<string, unknown>;
   if (role === "agent") {
     credentials = { keys: Object.fromEntries(Object.entries(instance.keys).map(([name, key]) => [name, key.value])) };

@@ -30,7 +30,9 @@ the OIDC token is bound to that key, so a leaked OIDC token is useless.
 
 ## Issues
 
-1. The Worker checks the [run limits](configuration.md#limits), reacts with 👀 and starts a run.
+1. The Worker checks the [run limits](configuration.md#limits), reacts with 👀 and starts a run. Once the
+   gate decides to look at the issue, tidy comments that it is on it, with a link to the run. If it then
+   leaves the issue alone, for example as spam, it deletes that comment.
 2. The gate reads the thread and decides whether everyone in it can already push to the repository.
 3. Triage classifies the issue by kind and size, and a [route](configuration.md#routes) picks the
    action: fix, reply, a security notice, or nothing. The fix or reply runs in the same job, as a
@@ -70,6 +72,14 @@ Comment on an issue or pull request. Only people with write access can run comma
 | `@tidy fix` | Attempt a fix for an issue, even one triaged as a question |
 | `@tidy review` | Review the pull request again |
 | `@tidy publish` | Open the pull request for a patch tidy posted for approval (within 7 days) |
+
+tidy skips pull requests from other bots, such as Renovate or Dependabot. Add the `tidy:review` label to
+one to have it reviewed; adding labels needs triage access, so this counts like a maintainer's command.
+Renovate can add the label itself, for example to major updates:
+
+```json
+{ "matchUpdateTypes": ["major"], "automerge": false, "addLabels": ["tidy:review"] }
+```
 
 ## Fixes from outside issues
 

@@ -9,6 +9,8 @@ export interface Target {
   /** The 👀 reaction the Worker added when the event arrived. */
   reaction?: number;
   follow_up?: boolean;
+  /** A maintainer asked for this review with the tidy:review label. */
+  requested?: boolean;
 }
 
 export interface Credentials {

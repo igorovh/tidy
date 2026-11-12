@@ -41,6 +41,8 @@ export interface Dispatch {
   commentId?: number;
   /** Set for new commits on an open pull request. */
   followUp?: boolean;
+  /** A maintainer asked for this review with the tidy:review label. */
+  requested?: boolean;
   /** ID of the 👀 reaction added on arrival, so the run can swap it when done. */
   reaction?: number;
 }

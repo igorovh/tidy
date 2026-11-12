@@ -20,6 +20,10 @@ on:
       failed:
         type: boolean
         default: false
+      # Posts the "looking into this" note with a link to the run, and nothing else.
+      announce:
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -40,7 +44,8 @@ jobs:
         with:
           bun-version: 1.4.4
       # Missing when the gate skipped the event; publish.ts then only resolves the reaction.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: ${{ !inputs.announce }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           name: context
@@ -48,7 +53,8 @@ jobs:
           run-id: ${{ inputs.source-run || github.run_id }}
           github-token: ${{ github.token }}
       # Skipped tasks leave no result; publish.ts then has nothing to do.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - if: ${{ !inputs.announce }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           pattern: result-*
@@ -57,7 +63,8 @@ jobs:
           run-id: ${{ inputs.source-run || github.run_id }}
           github-token: ${{ github.token }}
       # Files written by review extras, such as demo GIFs, to attach to the review.
-      - continue-on-error: true
+      - if: ${{ !inputs.announce }}
+        continue-on-error: true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: checks
@@ -66,6 +73,7 @@ jobs:
       - run: bun tidy/scripts/publish.ts
         env:
           FAILED: ${{ inputs.failed }}
+          ANNOUNCE: ${{ inputs.announce }}
           APPROVER: ${{ inputs.approver }}
           PATCH_SHA: ${{ inputs.patch-sha }}
           PROPOSAL: ${{ inputs.proposal }}

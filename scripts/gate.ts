@@ -207,9 +207,11 @@ async function main() {
       user: User;
       head: { sha: string; repo: { full_name: string } | null };
     }>(`/repos/${repo}/pulls/${target.number}`);
-    if (pr.draft && target.kind !== "command") stop("draft pull request");
+    // A maintainer asked for this review, with @tidy review or the tidy:review label.
+    const asked = target.kind === "command" || target.requested === true;
+    if (pr.draft && !asked) stop("draft pull request");
     const authorIsMaintainer = roles.get(pr.user.login) === "maintainer";
-    if (target.kind !== "command" && !authorIsMaintainer) await checkLimit(gh, repo, "pr", pr.user.login, config);
+    if (!asked && !authorIsMaintainer) await checkLimit(gh, repo, "pr", pr.user.login, config);
     fork = pr.head.repo?.full_name !== repo;
     let diffPath = `/repos/${repo}/pulls/${target.number}`;
     if (target.follow_up) {
@@ -251,7 +253,7 @@ async function main() {
     if (base !== pr.head.sha) stop("the pull request changed while tidy was reading it");
     const changed = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].flatMap((m) => [m[1]!, m[2]!]);
     // Extras run as root with network access, so outsiders' code only gets them when a maintainer asks.
-    const extrasAllowed = authorIsMaintainer || target.kind === "command";
+    const extrasAllowed = authorIsMaintainer || asked;
     if (!extrasAllowed && config.review.extras.length) notice("review extras are skipped for pull requests from people without write access");
     if (extrasAllowed) extras = config.review.extras.filter((extra) => changed.some((file) => extra.when.some((glob) => matchesGlob(file, glob)))).map((e) => e.name);
     // Extras run on the base branch too, for a before and after.

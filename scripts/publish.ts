@@ -310,12 +310,34 @@ async function react(gh: GitHubClient, target: Target, content: "rocket" | "conf
   if (content) await gh.request(subject, { method: "POST", body: { content } }).catch(quiet);
 }
 
+async function removeStatus(gh: GitHubClient, target: Target, marker: string, bot: string): Promise<void> {
+  try {
+    const comments = await gh.request<{ id: number; body: string; user: { login: string } | null }[]>(
+      `/repos/${target.repo}/issues/${target.number}/comments?per_page=100&sort=created&direction=desc`,
+    );
+    for (const c of comments.filter((c) => c.user?.login === bot && c.body.includes(marker))) {
+      await gh.request(`/repos/${target.repo}/issues/comments/${c.id}`, { method: "DELETE" });
+    }
+  } catch (error) {
+    notice(`Could not remove the status comment: ${(error as Error).message}`);
+  }
+}
+
 // Always runs last: it swaps the 👀 the Worker added for 🚀, or reports a failure instead of staying silent.
 async function main() {
   const credentials = await requestCredentials("write");
   const gh = client(credentials.token!);
   const { target } = credentials;
   const run = `${env("GITHUB_SERVER_URL")}/${env("GITHUB_REPOSITORY")}/actions/runs/${env("GITHUB_RUN_ID")}`;
+  const marker = `<!-- tidy:status run=${env("GITHUB_RUN_ID")} -->`;
+  if (process.env.ANNOUNCE === "true") {
+    // Written by tidy, not the model; it lets people follow a fix attempt while it runs.
+    await gh.request(`/repos/${target.repo}/issues/${target.number}/comments`, {
+      method: "POST",
+      body: { body: `Hi! tidy is looking into this issue and will try to open a pull request with a fix. You can [follow the run](${run}).\n${marker}` },
+    });
+    return;
+  }
   const report = (why: string) =>
     gh
       .request(`/repos/${target.repo}/issues/${target.number}/comments`, {
@@ -334,6 +356,8 @@ async function main() {
   }
   const failed = process.env.FAILED === "true" && outcome === "nothing";
   if (failed) await report("tidy stopped because of an error.");
+  // When tidy decided to leave the issue alone, such as spam, the "looking into this" note goes away.
+  if (outcome === "nothing" && !failed) await removeStatus(gh, target, marker, credentials.bot.login);
   await react(gh, target, outcome === "posted" ? "rocket" : failed || outcome === "problem" ? "confused" : null);
 }
 

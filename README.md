@@ -77,6 +77,8 @@ Comment on an issue or pull request. Only people with write access can run comma
 | `@tidy review` | Review the pull request again |
 | `@tidy publish` | Open the pull request for a patch tidy posted for approval |
 
+To have tidy review a pull request it skips, such as one from Renovate, add the `tidy:review` label.
+
 ## Documentation
 
 - [Setup](docs/setup.md): install, add repositories, protect branches, costs, updates
