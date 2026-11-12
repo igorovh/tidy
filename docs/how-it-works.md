@@ -39,6 +39,10 @@ the OIDC token is bound to that key, so a leaked OIDC token is useless.
 5. `publish.yml` checks the patch again, pushes a new `tidy/issue-…` branch, opens the pull request and
    comments on the issue. The 👀 becomes 🚀, or 😕 with a link to the run when something failed.
 
+The commit credits the issue author with a `Reported-by:` trailer for bugs, or `Suggested-by:` for
+anything else, and the pull request thanks them. tidy does not use `Co-authored-by:`, because the issue
+author did not write the code.
+
 ## Pull requests
 
 New pull requests are reviewed when they open or leave draft. Reviews start with a verdict, list

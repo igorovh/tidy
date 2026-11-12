@@ -42,6 +42,7 @@ jobs:
       task: fix
       model: ${{ needs.triage.outputs.model }}
       shell: ${{ needs.gate.outputs.trusted == 'true' }}
+      kind: ${{ needs.triage.outputs.kind }}
 
   reply:
     needs: [gate, triage]

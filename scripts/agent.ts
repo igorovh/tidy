@@ -174,7 +174,8 @@ function finishFix(work: string, stash: string, value: Record<string, unknown>):
   cpSync(join(context, "source.git"), git.gitDir, { recursive: true });
   try {
     const { patch } = buildPatch(git, meta.base, meta.config.protected_paths);
-    emit({ type: "pr", title, body: sanitize(body) }, patch);
+    // The kind decides how the commit credits the issue author (Reported-by or Suggested-by).
+    emit({ type: "pr", title, body: sanitize(body), kind: process.env.KIND ?? "" }, patch);
   } catch (error) {
     comment(`tidy prepared a change, but it failed the safety checks, so no pull request was opened:\n\n> ${(error as Error).message}`);
   }
@@ -192,6 +193,7 @@ async function main() {
     console.log(`Triage: ${triage.kind}/${triage.size} → ${decision.action} ${decision.model}`);
     setOutput("action", decision.action);
     setOutput("model", decision.model);
+    setOutput("kind", triage.kind);
     if (decision.action === "security-notice" && meta.config.security_notice) comment(meta.config.security_notice);
     return;
   }

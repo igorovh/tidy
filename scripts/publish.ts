@@ -8,6 +8,7 @@ import { type Credentials, requestCredentials, type Target } from "./lib/credent
 import { client, GitHubError, type GitHubClient } from "./lib/github";
 import { applyPatch, git } from "./lib/patch";
 import { ASSETS_BRANCH, storeAssets } from "./lib/assets";
+import { commitMessage, thanks } from "./lib/attribution";
 import { renderReview, type Review, validateReview, withSuggestion } from "./lib/review";
 import { sanitize, singleLine } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
@@ -23,7 +24,8 @@ function footer(model?: string): string {
   return `\n\n---\n✨ Powered by [tidy](https://github.com/igorovh/tidy)${by}`;
 }
 
-type Result = { type: "comment"; body: string } | { type: "pr"; title: string; body: string } | ({ type: "review" } & Review);
+type Fix = { type: "pr"; title: string; body: string; kind?: string };
+type Result = { type: "comment"; body: string } | Fix | ({ type: "review" } & Review);
 
 function readJson<T>(file: string, limit: number): T {
   if (!existsSync(file) || statSync(file).size > limit) throw new Error(`Missing or oversized ${file}`);
@@ -38,7 +40,7 @@ async function protectedBranch(gh: GitHubClient, meta: Meta): Promise<boolean> {
 }
 
 // Shows the patch on the issue instead of pushing it, because pushing would run CI with secrets on it.
-async function proposeForApproval(gh: GitHubClient, meta: Meta, result: { title: string; body: string }, patch: Buffer) {
+async function proposeForApproval(gh: GitHubClient, meta: Meta, result: Fix, patch: Buffer) {
   const sha = createHash("sha256").update(patch).digest("hex");
   const text = patch.toString("utf8");
   const shown = text.length > 50_000 ? `${text.slice(0, 50_000)}\n… (truncated, ${patch.length} bytes in total)` : text;
@@ -64,7 +66,7 @@ async function proposeForApproval(gh: GitHubClient, meta: Meta, result: { title:
   await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body } });
 }
 
-async function openPullRequest(gh: GitHubClient, token: string, bot: string, meta: Meta, result: { title: string; body: string }) {
+async function openPullRequest(gh: GitHubClient, token: string, bot: string, meta: Meta, result: Fix) {
   const patch = readFileSync(join(resultDir, "patch.diff"));
   const approver = process.env.APPROVER;
   if (approver) {
@@ -100,13 +102,7 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
 
   const botUser = await gh.request<{ id: number }>(`/users/${encodeURIComponent(bot)}`);
   const title = singleLine(result.title, 100);
-  const message = [
-    title,
-    "",
-    `Closes #${meta.number}`,
-    "",
-    `Co-authored-by: ${meta.author.login} <${meta.author.id}+${meta.author.login}@users.noreply.github.com>`,
-  ].join("\n");
+  const message = commitMessage(title, meta.number, meta.author, result.kind);
   const identity = ["-c", `user.name=${bot}`, "-c", `user.email=${botUser.id}+${bot}@users.noreply.github.com`, "-c", "commit.gpgsign=false"];
   git(ctx, [...identity, "commit", "--quiet", "--no-verify", "-F", "-"], message);
   const branch = `tidy/issue-${meta.number}-${env("GITHUB_RUN_ID")}-${env("GITHUB_RUN_ATTEMPT")}`;
@@ -124,7 +120,7 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
       title,
       head: branch,
       base: meta.defaultBranch,
-      body: `${sanitize(result.body)}${origin}${unguarded}\n\nChanged files: ${files.length}\n\nCloses #${meta.number}${FOOTER}`,
+      body: `${sanitize(result.body)}${origin}${unguarded}\n\nChanged files: ${files.length}\n\n${thanks(meta.number, meta.author, result.kind)}\n\nCloses #${meta.number}${FOOTER}`,
       draft: false,
     },
   });
