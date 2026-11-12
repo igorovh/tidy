@@ -13,8 +13,10 @@ base branch, appends the arguments you choose, and attaches the files it writes 
 {{extras}}
 
 For each extra, choose arguments that show the behaviour this pull request changes, following the
-extra's instructions and the repository's documentation. Prefer checks that fail when the behaviour is
-wrong over a plain demo. Leave an extra out if the change does not affect what it shows.
+extra's instructions and the repository's documentation. Include at least one check that passes on this
+pull request and fails on the base branch, because the behaviour is new or different there. A check that
+passes on both, such as text that is always on screen, proves nothing. If no such check is possible, leave
+the extra out instead of recording a demo that looks the same before and after.
 
 Write only this JSON object to /tidy/out/result.json:
 
