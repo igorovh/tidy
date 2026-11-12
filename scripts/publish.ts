@@ -333,7 +333,7 @@ async function main() {
     await status.start(
       announce === "review"
         ? `tidy is reviewing this pull request. You can [follow the run](${run}).`
-        : `Hi! tidy is looking into this issue and will try to open a pull request with a fix. You can [follow the run](${run}).`,
+        : `Hi! tidy is looking into this issue. If it can fix it, it will open a pull request. You can [follow the run](${run}).`,
     );
     return;
   }
