@@ -1,4 +1,9 @@
-# tidy
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <img alt="tidy" src="assets/banner-light.svg" width="360">
+  </picture>
+</p>
 
 A GitHub bot you run yourself. When someone opens an issue, tidy decides what kind of issue it is, then
 answers it or proposes a fix as a pull request. When a pull request opens, it reviews it. It never pushes
