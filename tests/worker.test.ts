@@ -4,7 +4,7 @@ import { b64url, utf8 } from "../shared/encoding";
 import { decrypt, deriveKeys, encrypt, signValue, verifyValue } from "../worker/crypto";
 import { appJwt, pkcs1ToPkcs8 } from "../worker/github";
 import { isSameOrigin } from "../worker/html";
-import { classify, signatureMatches } from "../worker/webhook";
+import { classify, countersFor, signatureMatches } from "../worker/webhook";
 
 const master = b64url(crypto.getRandomValues(new Uint8Array(32)));
 
@@ -80,9 +80,53 @@ describe("webhooks", () => {
   test("starts runs for new issues, mentions and ready pull requests", () => {
     expect(classify("issues", { ...base, action: "opened", sender: human, issue: { number: 3, state: "open" } }, bot, "alice/tidy")).toMatchObject({ kind: "issue", number: 3 });
     expect(
-      classify("issue_comment", { ...base, action: "created", sender: human, issue: { number: 3, state: "open" }, comment: { id: 9, body: "@tidy fix", user: human } }, bot, "alice/tidy"),
+      classify(
+        "issue_comment",
+        { ...base, action: "created", sender: human, issue: { number: 3, state: "open" }, comment: { id: 9, body: "@tidy fix", user: human, author_association: "COLLABORATOR" } },
+        bot,
+        "alice/tidy",
+      ),
     ).toMatchObject({ kind: "command", commentId: 9 });
     expect(classify("pull_request", { ...base, action: "opened", sender: human, pull_request: { number: 4, draft: false } }, bot, "alice/tidy")).toMatchObject({ kind: "review" });
+  });
+
+  test("commands from people without write access are dropped before they use up a run", () => {
+    const comment = (author_association: string) =>
+      classify(
+        "issue_comment",
+        { ...base, action: "created", sender: human, issue: { number: 3, state: "open" }, comment: { id: 9, body: "@tidy fix", user: human, author_association } },
+        bot,
+        "alice/tidy",
+      );
+    expect(comment("NONE")).toBeNull();
+    expect(comment("CONTRIBUTOR")).toBeNull();
+    expect(comment("OWNER")).not.toBeNull();
+  });
+
+  test("maintainers, the repository owner and tidy itself are trusted; others are not", () => {
+    const issue = (sender: { login: string; type: string }, author_association?: string) =>
+      classify(
+        "issues",
+        { ...base, repository: { ...base.repository, owner: { login: "alice" } }, action: "opened", sender, issue: { number: 3, state: "open", author_association } },
+        bot,
+        "alice/tidy",
+      )?.trusted;
+    expect(issue(human, "MEMBER")).toBe(true);
+    expect(issue({ login: "Alice", type: "User" })).toBe(true);
+    expect(issue(human, "NONE")).toBe(false);
+    expect(issue(human, "FIRST_TIME_CONTRIBUTOR")).toBe(false);
+  });
+
+  test("outsiders meet per-person and per-PR caps; maintainers only the safety caps", () => {
+    const limits = { runs_per_day: 300, runs_per_repo_per_day: 100, outsider_events_per_day: 10, outsider_pushes_per_pr_per_day: 6 };
+    const push = { repo: "Alice/App", repoId: 5, kind: "review" as const, number: 4, followUp: true, sender: "Bob" };
+    expect(countersFor({ ...push, trusted: true }, limits, "2026-11-12").map((c) => c.key)).toEqual(["runs:2026-11-12", "repo:alice/app:2026-11-12"]);
+    expect(countersFor({ ...push, trusted: false }, limits, "2026-11-12")).toEqual([
+      { key: "runs:2026-11-12", limit: 300 },
+      { key: "repo:alice/app:2026-11-12", limit: 100 },
+      { key: "person:bob:2026-11-12", limit: 10 },
+      { key: "pushes:alice/app#4:2026-11-12", limit: 6 },
+    ]);
   });
 
   test("new commits start a follow-up review", () => {

@@ -3,8 +3,6 @@ import type { TidyState } from "./state";
 export interface Env {
   STATE: DurableObjectNamespace<TidyState>;
   TIDY_MASTER_KEY: string;
-  /** Upper bound on workflow runs the Worker starts per UTC day. */
-  DAILY_RUN_LIMIT?: string;
 }
 
 export interface AppRecord {

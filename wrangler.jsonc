@@ -8,10 +8,6 @@
   "durable_objects": {
     "bindings": [{ "name": "STATE", "class_name": "TidyState" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TidyState"] }],
-  "vars": {
-    // Workflow runs started per UTC day across all repositories.
-    "DAILY_RUN_LIMIT": "60"
-  }
-  // TIDY_MASTER_KEY is a secret; `bun run deploy` creates it.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TidyState"] }]
+  // TIDY_MASTER_KEY is a secret; `bun run deploy` creates it. Run limits live in tidy.yml.
 }

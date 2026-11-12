@@ -49,4 +49,33 @@ export class TidyState extends DurableObject<object> {
     this.sql.exec("INSERT OR REPLACE INTO kv (k, v, exp) VALUES (?, ?, ?)", k, String(count + 1), exp ?? Date.now() + ttlMs);
     return true;
   }
+
+  /**
+   * One call per webhook: drops repeated deliveries, then takes every counter or none, so a refused
+   * event does not use up the others. Returns the name of the counter that is full, if any.
+   */
+  admit(delivery: string, counters: { key: string; limit: number }[], ttlMs: number): { ok: true } | { ok: false; reason: string } {
+    if (this.live(`delivery:${delivery}`) !== null) return { ok: false, reason: "duplicate" };
+    this.put(`delivery:${delivery}`, "1", ttlMs);
+    for (const { key, limit } of counters) {
+      if (Number(this.live(key) ?? 0) >= limit) return { ok: false, reason: key.split(":")[0]! };
+    }
+    for (const { key, limit } of counters) this.take(key, limit, ttlMs);
+    return { ok: true };
+  }
+
+  /**
+   * One call per credential request: the OIDC token is used once, the first run to redeem a dispatch
+   * owns it, and write tokens are capped per run. Returns the stored dispatch.
+   */
+  redeem(input: { jti: string; publicKey: string; dispatchId: string; runId: string; writeLimit?: number }): { dispatch: string } | { error: string } {
+    if (this.claim(`jti:${input.jti}`, input.publicKey, 900_000) !== input.publicKey) return { error: "token already used" };
+    const dispatch = this.live(`dispatch:${input.dispatchId}`);
+    if (dispatch === null) return { error: "unknown dispatch" };
+    if (this.claim(`run:${input.dispatchId}`, input.runId, 86_400_000) !== input.runId) return { error: "dispatch belongs to another run" };
+    if (input.writeLimit !== undefined && !this.take(`write:${input.runId}`, input.writeLimit, 86_400_000)) {
+      return { error: "write token limit reached for this run" };
+    }
+    return { dispatch };
+  }
 }

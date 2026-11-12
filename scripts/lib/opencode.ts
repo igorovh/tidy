@@ -22,6 +22,8 @@ export function sandboxConfig(task: AgentTask, shell: boolean): object {
     tool("edit:*opencode.json*", "deny"),
     tool("edit:*.opencode/*", "deny"),
     tool("edit:/tidy/context/*", "deny"),
+    // The model key is in the process environment; outside directories are already denied, this is a second lock.
+    ...["/proc", "/sys", "/dev"].flatMap((dir) => [tool(`read:${dir}/*`, "deny"), tool(`external_directory:${dir}/*`, "deny")]),
     { action: "mcp.use", resource: "*", effect: "deny" },
     { action: "skill.use", resource: "*", effect: "deny" },
     { action: "plugin.use", resource: "*", effect: "deny" },

@@ -5,6 +5,7 @@ import { env, notice, setOutput } from "./lib/actions";
 import { type Config, matchesGlob, mergeRepo, parseInstance } from "./lib/config";
 import { requestCredentials } from "./lib/credentials";
 import { canWrite, client, GitHubError, type GitHubClient } from "./lib/github";
+import { withoutCode } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
 import { PENDING, secretWorkflows } from "./lib/workflows";
 
@@ -157,9 +158,10 @@ async function main() {
 
   if (task === "publish") {
     // Only tidy's own latest proposal on this issue can be published; its hash pins the exact patch.
-    const proposal = comments.filter((c) => c.user.login === credentials.bot.login && PENDING.test(c.body)).pop();
+    // A marker inside code is text tidy quoted, not one it wrote, so code is ignored.
+    const proposal = comments.filter((c) => c.user.login === credentials.bot.login && PENDING.test(withoutCode(c.body))).pop();
     // The real marker is the last one; the patch shown above it could contain a fake.
-    const match = proposal && [...proposal.body.matchAll(new RegExp(PENDING.source, "g"))].pop();
+    const match = proposal && [...withoutCode(proposal.body).matchAll(new RegExp(PENDING.source, "g"))].pop();
     if (!match) stop("no change from tidy is waiting for approval on this issue");
     const command = comments.find((c) => c.id === target.comment_id)!;
     setOutput("task", "publish");
@@ -206,7 +208,8 @@ async function main() {
       head: { sha: string; repo: { full_name: string } | null };
     }>(`/repos/${repo}/pulls/${target.number}`);
     if (pr.draft && target.kind !== "command") stop("draft pull request");
-    if (target.kind !== "command" && roles.get(pr.user.login) !== "maintainer") await checkLimit(gh, repo, "pr", pr.user.login, config);
+    const authorIsMaintainer = roles.get(pr.user.login) === "maintainer";
+    if (target.kind !== "command" && !authorIsMaintainer) await checkLimit(gh, repo, "pr", pr.user.login, config);
     fork = pr.head.repo?.full_name !== repo;
     let diffPath = `/repos/${repo}/pulls/${target.number}`;
     if (target.follow_up) {
@@ -217,10 +220,16 @@ async function main() {
       const ours = reviews.filter((r) => r.user?.login === credentials.bot.login);
       const previous = ours.at(-1);
       if (previous) {
-        if (ours.length > config.review.max_auto_reviews) stop(`this pull request had ${ours.length} reviews; comment @tidy review for another`);
+        // The cap guards against outsiders burning model usage; maintainers' pull requests have none.
+        if (!authorIsMaintainer && ours.length >= config.review.max_auto_reviews) {
+          stop(`this pull request had ${ours.length} reviews; a maintainer can comment @tidy review for another`);
+        }
         if (previous.commit_id === pr.head.sha) stop("this commit was already reviewed");
-        // After a force-push the old commit is not an ancestor, so the whole pull request is reviewed again.
-        const compare = await gh.request<{ status: string }>(`/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`);
+        // After a force-push the old commit is not an ancestor, or is gone, so the whole pull request is reviewed again.
+        const compare = await gh.request<{ status: string }>(`/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`).catch((error) => {
+          if (error instanceof GitHubError && error.status === 404) return { status: "missing" };
+          throw error;
+        });
         if (compare.status === "ahead") {
           followUp = true;
           diffPath = `/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`;
@@ -241,7 +250,10 @@ async function main() {
     base = fetchSource(repo, `refs/pull/${target.number}/head`, credentials.token!, ctx);
     if (base !== pr.head.sha) stop("the pull request changed while tidy was reading it");
     const changed = [...diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)].flatMap((m) => [m[1]!, m[2]!]);
-    extras = config.review.extras.filter((extra) => changed.some((file) => extra.when.some((glob) => matchesGlob(file, glob)))).map((e) => e.name);
+    // Extras run as root with network access, so outsiders' code only gets them when a maintainer asks.
+    const extrasAllowed = authorIsMaintainer || target.kind === "command";
+    if (!extrasAllowed && config.review.extras.length) notice("review extras are skipped for pull requests from people without write access");
+    if (extrasAllowed) extras = config.review.extras.filter((extra) => changed.some((file) => extra.when.some((glob) => matchesGlob(file, glob)))).map((e) => e.name);
     // Extras run on the base branch too, for a before and after.
     if (extras.length) fetchSource(repo, `refs/heads/${info.default_branch}`, credentials.token!, { gitDir: join(out, "base.git"), workTree: join(out, "base") });
   }

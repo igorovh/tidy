@@ -1,4 +1,10 @@
 const MAX = 60_000;
+const FENCE = /^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm;
+// A backslash before the opening backtick makes it literal on GitHub, so that is not code.
+const SPAN = /(?<![`\\])(`+)(?!`)[^\n]*?[^`\n]\1(?!`)/g;
+
+/** The text GitHub renders as Markdown, with code blocks and spans removed. */
+export const withoutCode = (text: string) => text.replace(/\r\n?/g, "\n").replace(FENCE, "").replace(SPAN, "");
 const LINK = /\[([^\]]*)\]\(\s*<?([^)\s>]*)>?(?:\s+"[^"]*")?\s*\)/g;
 
 function clean(text: string): string {
@@ -22,9 +28,7 @@ export function sanitize(text: string, max = MAX): string {
   // Control characters were stripped above, so the placeholders cannot be forged.
   const code: string[] = [];
   const keep = (match: string) => `\u0000${code.push(match) - 1}\u0000`;
-  out = out.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[ \t]*$/gm, keep);
-  // A backslash before the opening backtick makes it literal on GitHub, so that is not code.
-  out = out.replace(/(?<![`\\])(`+)(?!`)[^\n]*?[^`\n]\1(?!`)/g, keep);
+  out = out.replace(FENCE, keep).replace(SPAN, keep);
   // Nested constructs like [![x](a)](b) only surface after one pass, so repeat until stable.
   for (let previous = ""; previous !== out; ) {
     previous = out;

@@ -14,31 +14,17 @@ on:
       shell:
         type: boolean
         default: false
-      # The issue kind from triage, so a fix credits the issue author the right way.
-      kind:
-        type: string
-        default: ""
-    outputs:
-      action:
-        value: ${{ jobs.agent.outputs.action }}
-      model:
-        value: ${{ jobs.agent.outputs.model }}
-      kind:
-        value: ${{ jobs.agent.outputs.kind }}
 
 permissions: {}
 
 jobs:
   agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    # An issue runs two agent steps, each capped by agent.timeout_minutes.
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
-    outputs:
-      action: ${{ steps.agent.outputs.action }}
-      model: ${{ steps.agent.outputs.model }}
-      kind: ${{ steps.agent.outputs.kind }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,7 +50,6 @@ jobs:
           TASK: ${{ inputs.task }}
           MODEL: ${{ inputs.model }}
           SHELL_ALLOWED: ${{ inputs.shell }}
-          KIND: ${{ inputs.kind }}
         run: bun tidy/scripts/agent.ts
       - if: steps.agent.outputs.result == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

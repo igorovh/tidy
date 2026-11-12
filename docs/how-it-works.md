@@ -6,9 +6,9 @@ receives GitHub webhooks and holds the keys. The agent is [OpenCode](https://ope
 ```text
 GitHub event ──▶ Worker ──repository_dispatch──▶ tidy workflows in your tidy repository
 (issue, PR,       checks the signature,           gate     reads the thread, decides trust, snapshots the code
- @tidy comment)   holds the App key and           triage   a model with no tools classifies the issue
-                  model keys                      plan     picks arguments for review extras
-                      ▲                           fix / reply / review   OpenCode in a container
+ @tidy comment)   holds the App key and           issue    triage, then a fix or reply, in one job
+                  model keys, applies the         plan     picks arguments for review extras
+                  run limits                      review   OpenCode in a container
                       │                           checks   your repo's tests, no credentials at all
                       └── per-job credentials ─── publish  the only job with write access
 ```
@@ -30,14 +30,19 @@ the OIDC token is bound to that key, so a leaked OIDC token is useless.
 
 ## Issues
 
-1. The Worker reacts with 👀 and starts a run.
+1. The Worker checks the [run limits](configuration.md#limits), reacts with 👀 and starts a run.
 2. The gate reads the thread and decides whether everyone in it can already push to the repository.
 3. Triage classifies the issue by kind and size, and a [route](configuration.md#routes) picks the
-   action: fix, reply, a security notice, or nothing.
+   action: fix, reply, a security notice, or nothing. The fix or reply runs in the same job, as a
+   separate OpenCode session.
 4. For a fix, OpenCode edits a copy of the code. It gets a shell only when the whole thread comes from
    people with write access.
 5. `publish.yml` checks the patch again, pushes a new `tidy/issue-…` branch, opens the pull request and
-   comments on the issue. The 👀 becomes 🚀, or 😕 with a link to the run when something failed.
+   comments on the issue. The 👀 becomes 🚀, or 😕 with a comment and a link to the run when
+   something failed.
+
+When the model provider refuses tidy's key, for example because the plan's usage is used up, tidy says
+so on the issue or pull request, mentions the tidy admin, and changes nothing.
 
 The commit credits the issue author with a `Reported-by:` trailer for bugs, or `Suggested-by:` for
 anything else, and the pull request thanks them. tidy does not use `Co-authored-by:`, because the issue
@@ -45,14 +50,16 @@ author did not write the code.
 
 ## Pull requests
 
-New pull requests are reviewed when they open or leave draft. Reviews start with a verdict, list
+Pull requests are reviewed when they open, reopen or leave draft. Reviews start with a verdict, list
 findings, report the [checks](configuration.md#reviews), and put inline comments on the changed lines.
 For small, certain fixes an inline comment carries a GitHub suggestion that the author can commit with
 one click. [Review extras](extras.md) can add files such as before and after GIFs.
 
 New commits get a follow-up review of just those commits, which says what they fixed and what is still
-open. A push during a review cancels it, so a burst of commits gets one review. After
-`review.max_auto_reviews` reviews a pull request is only reviewed on `@tidy review`.
+open. A push during a review cancels it, so a burst of commits gets one review. A pull request from
+someone without write access gets at most `review.max_auto_reviews` automatic reviews, and at most
+`limits.outsider_pushes_per_pr_per_day` follow-ups a day; after that a maintainer can comment
+`@tidy review`. Maintainers' pull requests have no such caps.
 
 ## Commands
 
@@ -71,7 +78,8 @@ branches, including any secrets it uses. That is fine for ordinary CI, but a fix
 outsider's issue could be steered into code that leaks those secrets.
 
 So when an issue thread includes text from people without write access, tidy reads your workflows first.
-If none of them run on pull requests with secrets, it opens the pull request right away, with a
+If none of them use secrets on pull requests or on pushes to tidy's branches, it opens the pull request
+right away, with a
 `tidy: untrusted` label and a warning. If some do, it posts the patch as a comment instead, and a
 maintainer opens the pull request by commenting `@tidy publish`. The comment pins the patch by its hash,
 so only what you read gets published. Workflows listed in

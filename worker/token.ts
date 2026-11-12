@@ -24,24 +24,21 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     return deny((error as Error).message);
   }
 
-  const state = stateOf(env);
-  if ((await state.claim(`jti:${claims.jti}`, input.public_key, 900_000)) !== input.public_key) return deny("token already used");
-  const raw = await state.get(`dispatch:${input.dispatch_id}`);
-  if (!raw) return deny("unknown dispatch");
-  // The first run that redeems a dispatch owns it; another run cannot borrow its target.
-  if ((await state.claim(`run:${input.dispatch_id}`, claims.run_id, 86_400_000)) !== claims.run_id) {
-    return deny("dispatch belongs to another run");
-  }
-  const dispatch = JSON.parse(raw) as Dispatch;
+  const redeemed = await stateOf(env).redeem({
+    jti: claims.jti,
+    publicKey: input.public_key,
+    dispatchId: input.dispatch_id,
+    runId: claims.run_id,
+    ...(role === "write" ? { writeLimit: WRITE_TOKENS_PER_RUN } : {}),
+  });
+  if ("error" in redeemed) return deny(redeemed.error);
+  const dispatch = JSON.parse(redeemed.dispatch) as Dispatch;
 
   const target = { kind: dispatch.kind, repo: dispatch.repo, number: dispatch.number, comment_id: dispatch.commentId, reaction: dispatch.reaction, follow_up: dispatch.followUp };
   let credentials: Record<string, unknown>;
   if (role === "agent") {
     credentials = { keys: Object.fromEntries(Object.entries(instance.keys).map(([name, key]) => [name, key.value])) };
   } else {
-    if (role === "write" && !(await state.take(`write:${claims.run_id}`, WRITE_TOKENS_PER_RUN, 86_400_000))) {
-      return deny("write token limit reached for this run");
-    }
     const token = await installationToken(
       instance.app,
       dispatch.installationId,
@@ -52,6 +49,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     );
     credentials = { token: token.token };
   }
-  const body = JSON.stringify({ role, target, bot: { login: `${instance.app.slug}[bot]` }, ...credentials });
+  // The admin is pinged when the model provider refuses tidy's key, for example when usage runs out.
+  const body = JSON.stringify({ role, target, bot: { login: `${instance.app.slug}[bot]` }, admin: instance.app.ownerLogin, ...credentials });
   return Response.json(await seal(input.public_key, body, `${input.dispatch_id}|${claims.run_id}|${role}`));
 }

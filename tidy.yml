@@ -1,5 +1,7 @@
-# Instance defaults. A repository can override triage, routes, review and protected_paths with
-# .github/tidy.yml on its default branch, but only with models listed in models.allowed.
+# Instance defaults. A repository's .github/tidy.yml (read from its default branch) may change
+# enabled, triage, routes, review, safe_workflows and security_notice, add protected_paths, and
+# lower the outsider limits. It may only pick models listed in models.allowed.
+# See docs/configuration.md for every setting.
 
 enabled: true
 
@@ -33,15 +35,27 @@ review:
   # checks: ["bun install --frozen-lockfile", "bun test"]
   checks: []
   image: node:22-bookworm
+  # Follow-up reviews when new commits arrive.
+  on_push: true
+  # Automatic reviews per pull request from people without write access; after that only
+  # `@tidy review` starts one. Maintainers' pull requests have no cap.
+  max_auto_reviews: 5
 
 agent:
   opencode: 2.2.7
   image: node:22-bookworm
   timeout_minutes: 30
 
+# Days are UTC. Changes apply within 5 minutes, without a redeploy. Keep these as plain numbers:
+# the Worker reads this block without a full YAML parser.
 limits:
-  # Issues, and pull requests to review, per day from each person without write access.
-  # A repository may lower this in .github/tidy.yml, never raise it.
+  # Safety caps for everyone, maintainers included, against loops and runaway costs.
+  runs_per_day: 300
+  runs_per_repo_per_day: 100
+  # People without write access only. Maintainers and tidy itself are not limited.
+  outsider_events_per_day: 10        # issues, pull requests and pushes per person
+  outsider_pushes_per_pr_per_day: 6  # follow-up reviews per pull request
+  # Issues and pull requests tidy handles per person per day. A repository may lower this.
   outsider_attempts_per_day: 2
 
 # Patches touching these are rejected. A trailing slash means a directory at the repository root;

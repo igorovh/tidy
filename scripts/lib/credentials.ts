@@ -15,6 +15,8 @@ export interface Credentials {
   role: "read" | "agent" | "write";
   target: Target;
   bot: { login: string };
+  /** The tidy instance's owner, pinged when the model provider refuses tidy's key. */
+  admin?: string;
   token?: string;
   keys?: Record<string, string>;
 }

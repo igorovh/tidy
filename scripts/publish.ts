@@ -3,13 +3,14 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, join } from "node:path";
-import { env, notice } from "./lib/actions";
+import { clientPayload, env, notice } from "./lib/actions";
 import { type Credentials, requestCredentials, type Target } from "./lib/credentials";
 import { client, GitHubError, type GitHubClient } from "./lib/github";
 import { applyPatch, git } from "./lib/patch";
 import { ASSETS_BRANCH, storeAssets } from "./lib/assets";
 import { commitMessage, thanks } from "./lib/attribution";
-import { renderReview, type Review, validateReview, withSuggestion } from "./lib/review";
+import { providerNotice } from "./lib/provider";
+import { commentableLines, renderReview, type Review, validateReview, withSuggestion } from "./lib/review";
 import { sanitize, singleLine } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
 import type { Meta } from "./gate";
@@ -25,7 +26,8 @@ function footer(model?: string): string {
 }
 
 type Fix = { type: "pr"; title: string; body: string; kind?: string };
-type Result = { type: "comment"; body: string } | Fix | ({ type: "review" } & Review);
+type Result = { type: "comment"; body: string } | Fix | ({ type: "review" } & Review) | { type: "provider"; problem: string };
+
 
 function readJson<T>(file: string, limit: number): T {
   if (!existsSync(file) || statSync(file).size > limit) throw new Error(`Missing or oversized ${file}`);
@@ -160,7 +162,12 @@ const MEDIA: Record<string, string> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
 };
-const MAX_ATTACHMENT = 10 * 1024 * 1024;
+// Files land on a branch in the reviewed repository, so each review gets a small budget.
+const MAX_ATTACHMENT = 2 * 1024 * 1024;
+const MAX_ATTACHMENTS = 8;
+const MAX_ATTACHMENT_TOTAL = 10 * 1024 * 1024;
+// GitHub rejects review bodies over 65,536 characters.
+const MAX_REVIEW_BODY = 60_000;
 // Pull request code chooses these names, and they end up in Markdown.
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
 
@@ -171,9 +178,13 @@ async function extrasSection(gh: GitHubClient, meta: Meta): Promise<string> {
   const folder = `${new Date().toISOString().slice(0, 10)}/pr-${meta.number}-${env("GITHUB_RUN_ID")}`;
   const sections: { title: string; before: string | null; after: string | null }[] = [];
   const files: { path: string; data: Buffer }[] = [];
+  let total = 0;
   const pick = (dir: string, name: string, path: string) => {
     const file = join(dir, name);
-    if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > MAX_ATTACHMENT) return null;
+    if (!existsSync(file) || !lstatSync(file).isFile()) return null;
+    const size = lstatSync(file).size;
+    if (size > MAX_ATTACHMENT || files.length >= MAX_ATTACHMENTS || total + size > MAX_ATTACHMENT_TOTAL) return "too-large";
+    total += size;
     files.push({ path, data: readFileSync(file) });
     return path;
   };
@@ -200,6 +211,7 @@ async function extrasSection(gh: GitHubClient, meta: Meta): Promise<string> {
   }
   const show = (path: string | null) => {
     if (!path) return "_not produced_";
+    if (path === "too-large") return "_too large to attach (2 MB per file, 10 MB per review)_";
     const url = urls.get(path);
     if (!url) return "_could not attach_";
     return /\.(mp4|webm)$/i.test(path) ? url : `![${basename(path)}](${url})`;
@@ -213,7 +225,9 @@ async function postReview(gh: GitHubClient, meta: Meta, review: Review) {
   const pr = await gh.request<{ head: { sha: string } }>(`/repos/${meta.repo}/pulls/${meta.number}`);
   const stale = pr.head.sha !== meta.base;
   const extras = await extrasSection(gh, meta);
-  const body = `${renderReview(review, { followUp: meta.followUp, extras })}${stale ? `\n\n_Reviewed commit ${meta.base.slice(0, 7)}; the pull request has changed since._` : ""}${FOOTER}`;
+  let text = `${renderReview(review, { followUp: meta.followUp, extras })}${stale ? `\n\n_Reviewed commit ${meta.base.slice(0, 7)}; the pull request has changed since._` : ""}`;
+  if (text.length > MAX_REVIEW_BODY) text = `${text.slice(0, MAX_REVIEW_BODY)}\n\n…(review shortened to fit GitHub's limit)`;
+  const body = `${text}${FOOTER}`;
   const create = (comments: Review["comments"]) =>
     gh.request(`/repos/${meta.repo}/pulls/${meta.number}/reviews`, {
       method: "POST",
@@ -230,16 +244,35 @@ async function postReview(gh: GitHubClient, meta: Meta, review: Review) {
         })),
       },
     });
-  try {
-    await create(stale ? [] : review.comments);
-  } catch (error) {
+  const rejected = (error: unknown) => {
     if (!(error instanceof GitHubError && error.status === 422)) throw error;
-    await create([]);
+  };
+  try {
+    return await create(stale ? [] : review.comments);
+  } catch (error) {
+    rejected(error);
   }
+  // A follow-up diff can include lines from a merged base branch, which GitHub refuses comments on;
+  // keep the comments that point at the pull request's own diff before dropping them all.
+  try {
+    const full = await gh.request<string>(`/repos/${meta.repo}/pulls/${meta.number}`, { accept: "application/vnd.github.diff" });
+    const lines = commentableLines(full);
+    const kept = review.comments.filter((c) => [c.start_line ?? c.line, c.line].every((n) => lines.get(c.path)?.has(n)));
+    if (kept.length && kept.length < review.comments.length) return await create(kept);
+  } catch (error) {
+    rejected(error);
+  }
+  await create([]);
 }
 
-async function publish(gh: GitHubClient, credentials: Credentials): Promise<boolean> {
-  if (!existsSync(join(resultDir, "result.json"))) return false;
+type Outcome = "posted" | "problem" | "nothing";
+
+async function publish(gh: GitHubClient, credentials: Credentials): Promise<Outcome> {
+  if (!existsSync(join(resultDir, "result.json"))) {
+    // Artifacts are kept for 7 days, so an older approval has nothing left to publish.
+    if (process.env.APPROVER) throw new Error("The approved patch has expired. Comment `@tidy fix` to prepare a new one.");
+    return "nothing";
+  }
   const meta = readJson<Meta>(join(temp, "context", "meta.json"), 1_000_000);
   const result = readJson<Result>(join(resultDir, "result.json"), 2_000_000);
   FOOTER = footer((result as { model?: string }).model);
@@ -247,6 +280,12 @@ async function publish(gh: GitHubClient, credentials: Credentials): Promise<bool
   // The Worker's record of the dispatch, not the artifact, says where this run may write.
   if (target.repo.toLowerCase() !== meta.repo.toLowerCase() || target.number !== meta.number) throw new Error("Artifact does not match the dispatch");
 
+  if (result.type === "provider") {
+    const retry = meta.task === "review" ? "@tidy review" : "@tidy fix";
+    const body = providerNotice(result.problem, credentials.admin, clientPayload().worker, retry);
+    await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${body}${FOOTER}` } });
+    return "problem";
+  }
   if (result.type === "comment") {
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${sanitize(result.body)}${FOOTER}` } });
   } else if (result.type === "review") {
@@ -259,7 +298,7 @@ async function publish(gh: GitHubClient, credentials: Credentials): Promise<bool
   } else {
     throw new Error("Unknown result type");
   }
-  return true;
+  return "posted";
 }
 
 async function react(gh: GitHubClient, target: Target, content: "rocket" | "confused" | null): Promise<void> {
@@ -275,22 +314,27 @@ async function react(gh: GitHubClient, target: Target, content: "rocket" | "conf
 async function main() {
   const credentials = await requestCredentials("write");
   const gh = client(credentials.token!);
-  const failed = process.env.FAILED === "true";
-  let posted = false;
+  const { target } = credentials;
+  const run = `${env("GITHUB_SERVER_URL")}/${env("GITHUB_REPOSITORY")}/actions/runs/${env("GITHUB_RUN_ID")}`;
+  const report = (why: string) =>
+    gh
+      .request(`/repos/${target.repo}/issues/${target.number}/comments`, {
+        method: "POST",
+        body: { body: `${why} Nothing was changed. [See the run](${run}).${FOOTER}` },
+      })
+      .catch((error: Error) => notice(`Could not report the failure: ${error.message}`));
+  let outcome: Outcome;
   try {
-    posted = await publish(gh, credentials);
+    outcome = await publish(gh, credentials);
   } catch (error) {
-    await react(gh, credentials.target, "confused");
+    const expired = (error as Error).message.startsWith("The approved patch has expired");
+    await report(expired ? (error as Error).message : "tidy stopped because of an error while posting its answer.");
+    await react(gh, target, "confused");
     throw error;
   }
-  if (failed && !posted) {
-    const run = `${env("GITHUB_SERVER_URL")}/${env("GITHUB_REPOSITORY")}/actions/runs/${env("GITHUB_RUN_ID")}`;
-    await gh.request(`/repos/${credentials.target.repo}/issues/${credentials.target.number}/comments`, {
-      method: "POST",
-      body: { body: `tidy stopped because of an error, so nothing was changed. [See the run](${run}).${FOOTER}` },
-    });
-  }
-  await react(gh, credentials.target, failed && !posted ? "confused" : posted ? "rocket" : null);
+  const failed = process.env.FAILED === "true" && outcome === "nothing";
+  if (failed) await report("tidy stopped because of an error.");
+  await react(gh, target, outcome === "posted" ? "rocket" : failed || outcome === "problem" ? "confused" : null);
 }
 
 await main();

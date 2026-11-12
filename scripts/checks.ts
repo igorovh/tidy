@@ -1,12 +1,13 @@
 // Runs the repository's checks and review extras on pull request code. This job holds no credentials at all.
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { env } from "./lib/actions";
 import type { Meta } from "./gate";
 
 const MAX_OUTPUT = 15_000;
-const BUDGET = 40 * 60_000;
+// Below the job's 30-minute timeout, so the output is always uploaded for the review.
+const BUDGET = 25 * 60_000;
 const temp = env("RUNNER_TEMP");
 const meta = JSON.parse(readFileSync(join(temp, "context", "meta.json"), "utf8")) as Meta;
 const out = join(temp, "checks");
@@ -23,7 +24,7 @@ function copy(from: string, name: string): string {
 }
 
 function run(args: string[]): { status: string; tail: string } {
-  if (left() <= 0) return { status: "skipped: the 40 minute budget ran out", tail: "" };
+  if (left() <= 0) return { status: "skipped: the 25 minute budget ran out", tail: "" };
   const result = spawnSync("docker", ["run", "--rm", "--init", ...sandbox, ...args], { encoding: "utf8", timeout: left(), maxBuffer: 64 * 1024 * 1024 });
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   const tail = output.length > MAX_OUTPUT ? `… (output truncated)\n${output.slice(-MAX_OUTPUT)}` : output;
@@ -64,7 +65,7 @@ for (const extra of meta.config.review.extras.filter((e) => runs[e.name])) {
       "bash", "-c", `set -e\n${extra.setup}\nexec "$@"`, "bash", ...command, ...runs[extra.name]!,
     ]);
     spawnSync("sudo", ["chown", "-R", user, target]);
-    const files = readdirSync(target).map((f) => `${f} (${Math.round(statSync(join(target, f)).size / 1024)} KB)`);
+    const files = readdirSync(target).map((f) => `${f} (${Math.round(lstatSync(join(target, f)).size / 1024)} KB)`);
     const where = side === "after" ? "this pull request" : `the base branch (${meta.defaultBranch})`;
     console.log(`${extra.name} on ${side}: ${status}`);
     sections.push(

@@ -10,9 +10,11 @@ export class GitHubError extends Error {
 export function client(token: string) {
   async function request<T>(path: string, init: { method?: string; body?: unknown; accept?: string } = {}): Promise<T> {
     let response: Response;
-    // GitHub answers with a passing 5xx now and then. Reads and git objects are safe to send twice;
-    // a retried comment could post twice, so those are not retried.
-    const retries = (init.method ?? "GET") === "GET" || path.includes("/git/") ? 3 : 1;
+    // GitHub answers with a passing 5xx now and then. Reads, git objects and ref moves give the same
+    // result when sent twice; a retried comment or ref creation would fail or post twice, so not those.
+    const method = init.method ?? "GET";
+    const safe = method === "GET" || /\/git\/(blobs|trees|commits)$/.test(path) || (method === "PATCH" && path.includes("/git/refs/"));
+    const retries = safe ? 3 : 1;
     for (let attempt = 1; ; attempt++) {
       response = await fetch(`https://api.github.com${path}`, {
         method: init.method ?? "GET",

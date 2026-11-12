@@ -20,7 +20,8 @@ jobs:
       contents: read
       id-token: write
 
-  triage:
+  # Triage, then the fix or reply its route picks, in one job so the model key is fetched once.
+  issue:
     needs: gate
     if: needs.gate.outputs.task == 'triage'
     uses: ./.github/workflows/agent.yml
@@ -28,32 +29,9 @@ jobs:
       contents: read
       id-token: write
     with:
-      task: triage
+      task: issue
       model: ${{ needs.gate.outputs.triage-model }}
-
-  fix:
-    needs: [gate, triage]
-    if: needs.triage.outputs.action == 'fix'
-    uses: ./.github/workflows/agent.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      task: fix
-      model: ${{ needs.triage.outputs.model }}
       shell: ${{ needs.gate.outputs.trusted == 'true' }}
-      kind: ${{ needs.triage.outputs.kind }}
-
-  reply:
-    needs: [gate, triage]
-    if: needs.triage.outputs.action == 'reply'
-    uses: ./.github/workflows/agent.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      task: reply
-      model: ${{ needs.triage.outputs.model }}
 
   # Picks the arguments for the repository's review extras, such as the steps of a demo recording.
   plan:
@@ -76,7 +54,8 @@ jobs:
 
   review:
     needs: [gate, checks]
-    if: always() && needs.gate.outputs.task == 'review' && needs.checks.result != 'cancelled'
+    # Runs even if checks failed or timed out; a new push cancels the whole run instead.
+    if: always() && !cancelled() && needs.gate.outputs.task == 'review'
     uses: ./.github/workflows/agent.yml
     permissions:
       contents: read
@@ -86,7 +65,7 @@ jobs:
       model: ${{ needs.gate.outputs.review-model }}
 
   publish:
-    needs: [gate, triage, fix, reply, review]
+    needs: [gate, issue, review]
     # Always runs, so the 👀 reaction is resolved even when tidy skips the event or fails.
     if: always()
     uses: ./.github/workflows/publish.yml

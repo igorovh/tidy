@@ -22,18 +22,21 @@ tidy assumes the model can be talked into anything, and limits what it can do in
   `www.` links) are removed from everything tidy posts; code is left as written. Closing keywords cannot
   close other issues. Suggestions are fenced so their code cannot escape the block.
 - **Outside input never reaches secrets unseen.** Fixes from threads with outside text wait for
-  `@tidy publish` when the repository's pull request workflows use secrets (see
-  [How it works](how-it-works.md#fixes-from-outside-issues)).
+  `@tidy publish` when the repository's workflows use secrets on pull requests or on pushes to tidy's
+  branches (see [How it works](how-it-works.md#fixes-from-outside-issues)).
 - **Checks and extras have no credentials.** They run pull request code in a container without secrets
   or tokens. Their commands come from the default branch; the model only picks extra arguments, passed
-  as a list.
-- **Abuse limits.** People without write access get at most two issues or pull requests a day handled,
-  each pull request gets a limited number of automatic reviews, and the Worker caps workflow runs per
-  day (`DAILY_RUN_LIMIT` in `wrangler.jsonc`).
+  as a list. Extras run as root with network access, so for outsiders' pull requests they run only
+  when a maintainer asks with `@tidy review`.
+- **Model keys stay out of posts.** The agent cannot read `/proc`, `/sys` or `/dev`, and tidy discards
+  any result or patch that contains a configured key.
+- **Abuse limits.** People without write access get a few events a day, a few follow-up reviews per
+  pull request, at most two issues or pull requests handled a day, and their commands are ignored. The
+  Worker also caps runs per day in total and per repository. See [Limits](configuration.md#limits).
 - **The Worker** verifies webhook signatures and stores keys encrypted with a master key kept as a Worker
   secret. `/admin` uses GitHub sign-in (PKCE, admins of the tidy repository only, one-hour sessions,
-  CSRF tokens). Keys can be replaced but never read back, and every change opens an issue in your tidy
-  repository.
+  CSRF tokens). Keys can be replaced but not read back; the page shows only their last 4 characters.
+  Every change opens an issue in your tidy repository.
 
 ## Known limits
 

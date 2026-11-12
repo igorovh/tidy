@@ -56,13 +56,16 @@ because that needs an administration permission much broader than the one it pro
 
 ## Costs and limits
 
-- **Cloudflare:** the Worker and its Durable Object fit in the free plan. On the free plan Cloudflare
-  rejects requests over the limits instead of billing you.
+- **Cloudflare:** the Worker and its Durable Object fit in the free plan. A run makes 4 or 5 requests
+  to the Worker, and every GitHub event tidy is subscribed to makes one, even when tidy ignores it.
+  On the free plan Cloudflare rejects requests over its limits instead of billing you.
 - **GitHub Actions:** free for public repositories. A private tidy repository uses your Actions minutes.
 - **Model:** tidy uses Muse Spark on OpenCode Go by default, the cheapest paid model there. You choose
-  models in [`tidy.yml`](configuration.md#models).
-- **Run limits:** the Worker starts at most `DAILY_RUN_LIMIT` workflow runs per day (60 in
-  `wrangler.jsonc`). People without write access get at most two issues or pull requests a day handled.
+  models in [`tidy.yml`](configuration.md#models). When the provider refuses tidy's key, for example
+  because the plan's usage is used up, tidy says so on the issue or pull request and mentions you.
+- **Run limits:** safety caps for runs per day, in total and per repository, plus tighter limits for
+  people without write access. You set them in [`tidy.yml`](configuration.md#limits), and edits apply
+  within 5 minutes without a redeploy.
 
 ## Update
 
