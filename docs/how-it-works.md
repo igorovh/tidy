@@ -31,8 +31,7 @@ the OIDC token is bound to that key, so a leaked OIDC token is useless.
 ## Issues
 
 1. The Worker checks the [run limits](configuration.md#limits), reacts with 👀 and starts a run. Once the
-   gate decides to look at the issue, tidy comments that it is on it, with a link to the run. If it then
-   leaves the issue alone, for example as spam, it deletes that comment.
+   gate decides to look at the issue, tidy posts a status note with a link to the run.
 2. The gate reads the thread and decides whether everyone in it can already push to the repository.
 3. Triage classifies the issue by kind and size, and a [route](configuration.md#routes) picks the
    action: fix, reply, a security notice, or nothing. The fix or reply runs in the same job, as a
@@ -40,8 +39,9 @@ the OIDC token is bound to that key, so a leaked OIDC token is useless.
 4. For a fix, OpenCode edits a copy of the code. It gets a shell only when the whole thread comes from
    people with write access.
 5. `publish.yml` checks the patch again, pushes a new `tidy/issue-…` branch, opens the pull request and
-   comments on the issue. The 👀 becomes 🚀, or 😕 with a comment and a link to the run when
-   something failed.
+   edits the status note into "I opened #N with a fix". The 👀 becomes 🚀, or 😕 when something failed,
+   and the note then says what went wrong, with a link to the run. If tidy only replies, or leaves the
+   issue alone, for example as spam, it deletes the note.
 
 When the model provider refuses tidy's key, for example because the plan's usage is used up, tidy says
 so on the issue or pull request, mentions the tidy admin, and changes nothing.
@@ -52,7 +52,9 @@ author did not write the code.
 
 ## Pull requests
 
-Pull requests are reviewed when they open, reopen or leave draft. Reviews start with a verdict, list
+Pull requests are reviewed when they open, reopen or leave draft. While a review runs, a status note links
+to the run; afterwards it names the reviewed commit and the verdict. Each pull request has one such note,
+which later reviews edit instead of adding new ones. Reviews start with a verdict, list
 findings, report the [checks](configuration.md#reviews), and put inline comments on the changed lines.
 For small, certain fixes an inline comment carries a GitHub suggestion that the author can commit with
 one click. [Review extras](extras.md) can add files such as before and after GIFs.
