@@ -1,0 +1,24 @@
+# tidy
+
+> tidy is a self-hosted GitHub bot. It triages new issues, answers questions, proposes fixes as pull requests and reviews pull requests with the repository's own checks. It runs on GitHub Actions in the owner's copy of the igorovh/tidy template and a Cloudflare Worker that holds the keys, uses OpenCode as the agent, and needs no secrets in the repositories it serves.
+
+A repository configures tidy with an optional `.github/tidy.yml` on its default branch. The instance-wide defaults live in `tidy.yml` in the tidy repository. Only people with write access can run the `@tidy fix`, `@tidy review` and `@tidy publish` commands.
+
+## Docs
+
+- [Setup](https://raw.githubusercontent.com/igorovh/tidy/main/docs/setup.md): install your own tidy, add repositories, protect default branches, costs and updates
+- [Configuration](https://raw.githubusercontent.com/igorovh/tidy/main/docs/configuration.md): every setting in `tidy.yml` and `.github/tidy.yml`, and which ones a repository may change
+- [Review extras](https://raw.githubusercontent.com/igorovh/tidy/main/docs/extras.md): running a repository's command, such as a UI recording, on the pull request and its base
+- [How it works](https://raw.githubusercontent.com/igorovh/tidy/main/docs/how-it-works.md): the Worker, the workflows, credentials, and the issue, review and approval flows
+- [Security model](https://raw.githubusercontent.com/igorovh/tidy/main/docs/security.md): what each part may do, and known limits
+- [Prompts for coding agents](https://raw.githubusercontent.com/igorovh/tidy/main/docs/agent-prompts.md): set up tidy for a repository, or install your own instance
+
+## Examples
+
+- [Instance defaults](https://raw.githubusercontent.com/igorovh/tidy/main/tidy.yml): models, routes, limits and protected paths
+- [Checks and a demo recording](https://raw.githubusercontent.com/igorovh/opencode-better-tabs/main/.github/tidy.yml): a TypeScript plugin with before and after GIFs
+- [Checks and a lower outsider limit](https://raw.githubusercontent.com/igorovh/tidy-playground/main/.github/tidy.yml): the public playground
+
+## Optional
+
+- [Development](https://raw.githubusercontent.com/igorovh/tidy/main/docs/development.md): repository layout, local Worker, deploy
