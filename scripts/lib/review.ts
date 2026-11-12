@@ -32,7 +32,22 @@ export function commentableLines(diff: string): Map<string, Set<number>> {
 export interface ReviewComment {
   path: string;
   line: number;
+  /** First line of a multi-line comment; the suggestion replaces start_line..line. */
+  start_line?: number;
   body: string;
+  /** Replacement code for the commented lines, posted as a one-click suggestion. */
+  suggestion?: string;
+}
+
+export const MAX_SUGGESTION_LINES = 20;
+
+/**
+ * Appends a GitHub suggestion block, which the author can commit with one click. The fence is longer
+ * than any backtick run in the code, so the code cannot close it early.
+ */
+export function withSuggestion(body: string, suggestion: string): string {
+  const fence = "`".repeat(Math.max(3, ...[...suggestion.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+  return `${body}\n\n${fence}suggestion\n${suggestion.replace(/\r\n?/g, "\n").replace(/\n$/, "")}\n${fence}`;
 }
 
 export const VERDICTS = { ready: "✅ Ready to merge", changes: "⚠️ Needs changes", comments: "💬 Comments" } as const;
@@ -60,12 +75,27 @@ export function validateReview(raw: unknown, diff: string): Review {
   const comments: ReviewComment[] = [];
   const findings = items(value.findings);
   for (const entry of Array.isArray(value.comments) ? value.comments.slice(0, MAX_COMMENTS) : []) {
-    const comment = entry as Partial<ReviewComment>;
+    const comment = entry as Partial<Omit<ReviewComment, "suggestion">> & { suggestion?: unknown };
     if (typeof comment.path !== "string" || !Number.isInteger(comment.line) || typeof comment.body !== "string") continue;
     const body = sanitize(comment.body, 4000);
     if (!body) continue;
-    if (valid.get(comment.path)?.has(comment.line!)) comments.push({ path: comment.path, line: comment.line!, body });
-    else findings.push(item(`\`${comment.path.replace(/`/g, "")}:${comment.line}\`: ${body}`));
+    const lines = valid.get(comment.path);
+    if (!lines?.has(comment.line!)) {
+      findings.push(item(`\`${comment.path.replace(/`/g, "")}:${comment.line}\`: ${body}`));
+      continue;
+    }
+    const start = Number.isInteger(comment.start_line) && comment.start_line! < comment.line! ? comment.start_line! : undefined;
+    // Every line of the range must be in the same part of the diff, or GitHub rejects the comment.
+    const range = start === undefined ? [comment.line!] : Array.from({ length: comment.line! - start + 1 }, (_, i) => start + i);
+    const inDiff = range.length <= MAX_SUGGESTION_LINES && range.every((n) => lines.has(n));
+    const suggestion = typeof comment.suggestion === "string" && comment.suggestion.length <= 4000 && inDiff ? comment.suggestion : undefined;
+    comments.push({
+      path: comment.path,
+      line: comment.line!,
+      ...(start !== undefined && inDiff ? { start_line: start } : {}),
+      body,
+      ...(suggestion === undefined ? {} : { suggestion }),
+    });
   }
   return {
     verdict: value.verdict === "ready" || value.verdict === "changes" ? value.verdict : "comments",

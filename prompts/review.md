@@ -25,7 +25,13 @@ Write a JSON object to /tidy/out/result.json and make no other changes:
  "fixed": ["follow-up reviews only: earlier findings the new commits resolved"],
  "checks": "one or two sentences: which checks passed or failed, and why",
  "checked": ["short items: what you verified, so the author knows what was covered"],
- "comments": [{"path": "file path as in the diff", "line": <line number in the new file>, "body": "finding and suggested fix"}]}
+ "comments": [{"path": "file path as in the diff", "line": <line number in the new file>, "body": "the finding",
+               "start_line": <optional first line, when the comment covers several lines>,
+               "suggestion": "optional: the exact new code for lines start_line..line (or just line)"}]}
+
+Add a "suggestion" only for a small, certain fix the author can commit with one click: give the
+complete replacement for the commented lines, with the original indentation and nothing else. Leave
+it out when the fix needs changes elsewhere or you are not sure.
 
 Readers never see tidy's files, so do not name them: write "the description", "the checks" or "your
 last review" instead of thread.md, checks.md, diff.patch or previous.md. Do not mention extras or

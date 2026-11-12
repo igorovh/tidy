@@ -133,8 +133,13 @@ review:
 The reviewing model reads the instructions and the diff and picks the arguments. tidy then runs
 `setup` and `command` with those arguments in a container without secrets, once on the pull request and
 once on the base branch. The files the command writes to `{out}` (GIF, PNG, JPEG, WebP, MP4 or WebM, up
-to 10 MB) are attached to the review as **Before** and **After**, through the same upload GitHub's
-editor uses. The model sees the command output too, so it can say what changed.
+to 10 MB) appear in the review as **Before** and **After**. The model sees the command output too, so
+it can say what changed.
+
+GitHub's attachment upload does not accept App tokens, so tidy keeps these files on a `tidy-assets`
+branch in the repository. The branch is always a single commit holding the last 30 days, so it adds
+no history and old files drop out. It is the only branch tidy ever overwrites. In private repositories
+the images may not show, because raw files there need a login.
 
 ### Commands
 
@@ -150,6 +155,9 @@ Comment on an issue or pull request. Only people with write access can run comma
 tidy reacts with 👀 as soon as it sees an issue, pull request or command, and swaps it for 🚀 when it
 has posted its answer, or 😕 with a link to the run when something failed. After opening a pull
 request it also comments on the issue.
+
+Reviews start with a verdict, list findings, and put inline comments on the changed lines. For small,
+certain fixes an inline comment carries a GitHub suggestion that the author can commit with one click.
 
 New pull requests are reviewed when they open or leave draft. New commits get a follow-up review of
 just those commits, which says what they fixed and what is still open. A push during a review cancels

@@ -7,7 +7,8 @@ import { env, notice } from "./lib/actions";
 import { type Credentials, requestCredentials, type Target } from "./lib/credentials";
 import { client, GitHubError, type GitHubClient } from "./lib/github";
 import { applyPatch, git } from "./lib/patch";
-import { renderReview, type Review, validateReview } from "./lib/review";
+import { ASSETS_BRANCH, storeAssets } from "./lib/assets";
+import { renderReview, type Review, validateReview, withSuggestion } from "./lib/review";
 import { sanitize, singleLine } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
 import type { Meta } from "./gate";
@@ -167,39 +168,19 @@ const MAX_ATTACHMENT = 10 * 1024 * 1024;
 // Pull request code chooses these names, and they end up in Markdown.
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
 
-// The same upload GitHub's web editor and `gh --attach` use; files land under github.com/user-attachments.
-async function attach(token: string, repoId: number, file: string): Promise<string> {
-  const name = basename(file);
-  const type = MEDIA[extname(name).toLowerCase()]!;
-  const url = `https://uploads.github.com/user-attachments/assets?name=${encodeURIComponent(name)}&content_type=${encodeURIComponent(type)}&repository_id=${repoId}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, accept: "application/json", "content-type": "application/octet-stream", "user-agent": "tidy-bot" },
-    body: readFileSync(file),
-  });
-  if (response.status !== 201) throw new Error(`upload returned ${response.status}: ${(await response.text()).slice(0, 200)}`);
-  const { url: asset } = (await response.json()) as { url?: string };
-  if (!asset?.startsWith("https://github.com/")) throw new Error("upload returned no GitHub URL");
-  return asset;
-}
-
-/** Turns files written by review extras into Markdown, with a before and after column per file. */
-async function extrasSection(gh: GitHubClient, token: string, meta: Meta): Promise<string> {
+/** Turns files written by review extras into Markdown, with a before and after per file. */
+async function extrasSection(gh: GitHubClient, meta: Meta): Promise<string> {
   const root = join(temp, "checks", "extras");
   if (!existsSync(root)) return "";
-  const { id: repoId } = await gh.request<{ id: number }>(`/repos/${meta.repo}`);
-  const show = async (file: string) => {
-    if (!existsSync(file)) return "_not produced_";
-    if (!lstatSync(file).isFile() || lstatSync(file).size > MAX_ATTACHMENT) return "_too large to attach_";
-    try {
-      const url = await attach(token, repoId, file);
-      return /\.(mp4|webm)$/i.test(file) ? url : `![${basename(file)}](${url})`;
-    } catch (error) {
-      notice(`Could not attach ${file}: ${(error as Error).message}`);
-      return "_could not attach_";
-    }
+  const folder = `${new Date().toISOString().slice(0, 10)}/pr-${meta.number}-${env("GITHUB_RUN_ID")}`;
+  const sections: { title: string; before: string | null; after: string | null }[] = [];
+  const files: { path: string; data: Buffer }[] = [];
+  const pick = (dir: string, name: string, path: string) => {
+    const file = join(dir, name);
+    if (!existsSync(file) || !lstatSync(file).isFile() || lstatSync(file).size > MAX_ATTACHMENT) return null;
+    files.push({ path, data: readFileSync(file) });
+    return path;
   };
-  const parts: string[] = [];
   for (const extra of meta.config.review.extras) {
     const slug = extra.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const dirs = { before: join(root, slug, "before"), after: join(root, slug, "after") };
@@ -207,24 +188,51 @@ async function extrasSection(gh: GitHubClient, token: string, meta: Meta): Promi
       Object.values(dirs).flatMap((dir) => (existsSync(dir) ? readdirSync(dir).filter((f) => SAFE_NAME.test(f) && MEDIA[extname(f).toLowerCase()]) : [])),
     );
     for (const name of [...names].sort().slice(0, 4)) {
-      parts.push(
-        `### ${extra.name}${names.size > 1 ? `: \`${name}\`` : ""}\n\n**Before** (\`${meta.defaultBranch}\`)\n\n${await show(join(dirs.before, name))}\n\n**After** (this pull request)\n\n${await show(join(dirs.after, name))}`,
-      );
+      sections.push({
+        title: `${extra.name}${names.size > 1 ? `: \`${name}\`` : ""}`,
+        before: pick(dirs.before, name, `${folder}/${slug}/before/${name}`),
+        after: pick(dirs.after, name, `${folder}/${slug}/after/${name}`),
+      });
     }
   }
-  return parts.join("\n\n");
+  if (!sections.length) return "";
+  let urls = new Map<string, string>();
+  try {
+    if (files.length) urls = await storeAssets(gh, meta.repo, files);
+  } catch (error) {
+    notice(`Could not store review files on ${ASSETS_BRANCH}: ${(error as Error).message}`);
+  }
+  const show = (path: string | null) => {
+    if (!path) return "_not produced_";
+    const url = urls.get(path);
+    if (!url) return "_could not attach_";
+    return /\.(mp4|webm)$/i.test(path) ? url : `![${basename(path)}](${url})`;
+  };
+  return sections
+    .map((s) => `### ${s.title}\n\n**Before** (\`${meta.defaultBranch}\`)\n\n${show(s.before)}\n\n**After** (this pull request)\n\n${show(s.after)}`)
+    .join("\n\n");
 }
 
-async function postReview(gh: GitHubClient, token: string, meta: Meta, review: Review) {
+async function postReview(gh: GitHubClient, meta: Meta, review: Review) {
   const pr = await gh.request<{ head: { sha: string } }>(`/repos/${meta.repo}/pulls/${meta.number}`);
   const stale = pr.head.sha !== meta.base;
-  const extras = await extrasSection(gh, token, meta);
+  const extras = await extrasSection(gh, meta);
   const body = `${renderReview(review, { followUp: meta.followUp, extras })}${stale ? `\n\n_Reviewed commit ${meta.base.slice(0, 7)}; the pull request has changed since._` : ""}${FOOTER}`;
   const create = (comments: Review["comments"]) =>
     gh.request(`/repos/${meta.repo}/pulls/${meta.number}/reviews`, {
       method: "POST",
       // Always a comment: tidy never approves or requests changes, so it cannot satisfy a required review.
-      body: { commit_id: meta.base, event: "COMMENT", body, comments: comments.map((c) => ({ ...c, side: "RIGHT" })) },
+      body: {
+        commit_id: meta.base,
+        event: "COMMENT",
+        body,
+        comments: comments.map(({ suggestion, ...c }) => ({
+          ...c,
+          body: suggestion === undefined ? c.body : withSuggestion(c.body, suggestion),
+          side: "RIGHT",
+          ...(c.start_line ? { start_side: "RIGHT" } : {}),
+        })),
+      },
     });
   try {
     await create(stale ? [] : review.comments);
@@ -247,7 +255,7 @@ async function publish(gh: GitHubClient, credentials: Credentials): Promise<bool
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${sanitize(result.body)}${FOOTER}` } });
   } else if (result.type === "review") {
     if (meta.task !== "review") throw new Error("Review result for a non-review dispatch");
-    await postReview(gh, credentials.token!, meta, validateReview(result, readFileSync(join(temp, "context", "diff.patch"), "utf8")));
+    await postReview(gh, meta, validateReview(result, readFileSync(join(temp, "context", "diff.patch"), "utf8")));
   } else if (result.type === "pr") {
     if (meta.task !== "triage") throw new Error("Pull request result for a non-issue dispatch");
     if (process.env.APPROVER && target.kind !== "command") throw new Error("Approval needs a @tidy publish command");
