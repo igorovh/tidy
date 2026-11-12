@@ -40,12 +40,12 @@ describe("config", () => {
 describe("route", () => {
   test("the first matching route picks the action and model", () => {
     expect(route(instance, { kind: "bug", size: "small" }, false)).toEqual({ action: "fix", model: "opencode-go/muse-spark-1.3-contributor" });
-    expect(route(instance, { kind: "feature", size: "large" }, false)).toEqual({ action: "fix", model: "opencode-go/kimi-k3.1-pro" });
+    expect(route(instance, { kind: "feature", size: "large" }, false)).toEqual({ action: "fix", model: "opencode-go/muse-spark-1.3-contributor" });
     expect(route(instance, { kind: "question", size: "small" }, false).action).toBe("reply");
   });
 
   test("`@tidy fix` turns a question into a fix but never acts on spam or security reports", () => {
-    expect(route(instance, { kind: "question", size: "large" }, true)).toEqual({ action: "fix", model: "opencode-go/kimi-k3.1-pro" });
+    expect(route(instance, { kind: "question", size: "large" }, true)).toEqual({ action: "fix", model: "opencode-go/muse-spark-1.3-contributor" });
     expect(route(instance, { kind: "spam", size: "small" }, true).action).toBe("ignore");
     expect(route(instance, { kind: "security", size: "small" }, true).action).toBe("security-notice");
   });

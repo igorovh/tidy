@@ -109,7 +109,7 @@ review:
 routes:
   - when: { kind: [bug], size: [small, medium] }
     action: fix
-    model: opencode-go/kimi-k3.1-pro
+    model: opencode-go/deepseek-v4.1-flash
 ```
 
 Keys live only in the Worker. Change models in `tidy.yml`; change keys in `/admin`.

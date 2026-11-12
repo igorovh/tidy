@@ -22,17 +22,15 @@ routes:
   - when: { kind: [question] }
     action: reply
     model: opencode-go/muse-spark-1.3-contributor
-  - when: { kind: [bug, docs], size: [small] }
-    action: fix
-    model: opencode-go/muse-spark-1.3-contributor
+  # Add a route with a size, such as `size: [large]`, to send bigger work to a stronger model.
   - when: { kind: [bug, feature, docs] }
     action: fix
-    model: opencode-go/kimi-k3.1-pro
+    model: opencode-go/muse-spark-1.3-contributor
 
 review:
   model: opencode-go/muse-spark-1.3-contributor
-  # Used by `@tidy review deep`.
-  deep_model: opencode-go/kimi-k3.1-pro
+  # Used by `@tidy review deep`; set a stronger model here if you want one.
+  deep_model: opencode-go/muse-spark-1.3-contributor
   # Commands run on the pull request's code in a container without any credentials, for example:
   # checks: ["bun install --frozen-lockfile", "bun test"]
   checks: []
