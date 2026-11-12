@@ -9,17 +9,25 @@ export class GitHubError extends Error {
 
 export function client(token: string) {
   async function request<T>(path: string, init: { method?: string; body?: unknown; accept?: string } = {}): Promise<T> {
-    const response = await fetch(`https://api.github.com${path}`, {
-      method: init.method ?? "GET",
-      headers: {
-        accept: init.accept ?? "application/vnd.github+json",
-        authorization: `Bearer ${token}`,
-        "user-agent": "tidy-bot",
-        "x-github-api-version": "2022-11-28",
-        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    });
+    let response: Response;
+    // GitHub answers with a passing 5xx now and then. Reads and git objects are safe to send twice;
+    // a retried comment could post twice, so those are not retried.
+    const retries = (init.method ?? "GET") === "GET" || path.includes("/git/") ? 3 : 1;
+    for (let attempt = 1; ; attempt++) {
+      response = await fetch(`https://api.github.com${path}`, {
+        method: init.method ?? "GET",
+        headers: {
+          accept: init.accept ?? "application/vnd.github+json",
+          authorization: `Bearer ${token}`,
+          "user-agent": "tidy-bot",
+          "x-github-api-version": "2022-11-28",
+          ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      });
+      if (response.status < 500 || attempt === retries) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+    }
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
       throw new GitHubError(response.status, `GitHub ${init.method ?? "GET"} ${path}: ${response.status} ${detail}`);
