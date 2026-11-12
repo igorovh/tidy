@@ -10,15 +10,18 @@ import { applyPatch, git } from "./lib/patch";
 import { ASSETS_BRANCH, storeAssets } from "./lib/assets";
 import { commitMessage, thanks } from "./lib/attribution";
 import { providerNotice } from "./lib/provider";
-import { commentableLines, renderReview, type Review, validateReview, withSuggestion } from "./lib/review";
+import { commentableLines, renderReview, type Review, validateReview, VERDICTS, withSuggestion } from "./lib/review";
 import { sanitize, singleLine } from "./lib/sanitize";
 import { fetchSource } from "./lib/source";
+import { statusComment, type StatusComment } from "./lib/status";
 import type { Meta } from "./gate";
 
 const temp = env("RUNNER_TEMP");
 const resultDir = join(temp, "result");
 const MODEL = /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9._:/-]+(#[a-z0-9-]+)?$/;
 let FOOTER = footer();
+// Set in main: the thread's status comment, which this run edits into its result.
+let status: StatusComment;
 
 function footer(model?: string): string {
   const by = model && MODEL.test(model) ? ` | Model: \`${model}\`` : "";
@@ -145,10 +148,10 @@ async function openPullRequest(gh: GitHubClient, token: string, bot: string, met
   }
   if (!approver) {
     const summary = sanitize(result.body.split(/\n\s*\n/)[0] ?? "", 800);
-    await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, {
-      method: "POST",
-      body: { body: `I opened #${pr.number} with a fix: **${title}**\n\n${summary}${FOOTER}` },
-    });
+    const text = `I opened #${pr.number} with a fix: **${title}**\n\n${summary}${FOOTER}`;
+    if (!(await status.finish(text))) {
+      await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: text } });
+    }
   }
   notice(`Opened ${pr.html_url}`);
 }
@@ -244,6 +247,11 @@ async function postReview(gh: GitHubClient, meta: Meta, review: Review) {
         })),
       },
     });
+  await postWithFallback(gh, meta, review, stale, create);
+  await status.finish(`Reviewed commit \`${meta.base.slice(0, 7)}\`: **${VERDICTS[review.verdict]}**. See the review below.`);
+}
+
+async function postWithFallback(gh: GitHubClient, meta: Meta, review: Review, stale: boolean, create: (comments: Review["comments"]) => Promise<unknown>) {
   const rejected = (error: unknown) => {
     if (!(error instanceof GitHubError && error.status === 422)) throw error;
   };
@@ -282,12 +290,14 @@ async function publish(gh: GitHubClient, credentials: Credentials): Promise<Outc
 
   if (result.type === "provider") {
     const retry = meta.task === "review" ? "@tidy review" : "@tidy fix";
-    const body = providerNotice(result.problem, credentials.admin, clientPayload().worker, retry);
-    await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${body}${FOOTER}` } });
+    const body = `${providerNotice(result.problem, credentials.admin, clientPayload().worker, retry)}${FOOTER}`;
+    if (!(await status.finish(body))) await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body } });
     return "problem";
   }
   if (result.type === "comment") {
     await gh.request(`/repos/${meta.repo}/issues/${meta.number}/comments`, { method: "POST", body: { body: `${sanitize(result.body)}${FOOTER}` } });
+    // The answer is its own comment, so the status note has nothing left to say.
+    await status.remove().catch((error: Error) => notice(`Could not remove the status comment: ${error.message}`));
   } else if (result.type === "review") {
     if (meta.task !== "review") throw new Error("Review result for a non-review dispatch");
     await postReview(gh, meta, validateReview(result, readFileSync(join(temp, "context", "diff.patch"), "utf8")));
@@ -310,41 +320,31 @@ async function react(gh: GitHubClient, target: Target, content: "rocket" | "conf
   if (content) await gh.request(subject, { method: "POST", body: { content } }).catch(quiet);
 }
 
-async function removeStatus(gh: GitHubClient, target: Target, marker: string, bot: string): Promise<void> {
-  try {
-    const comments = await gh.request<{ id: number; body: string; user: { login: string } | null }[]>(
-      `/repos/${target.repo}/issues/${target.number}/comments?per_page=100&sort=created&direction=desc`,
-    );
-    for (const c of comments.filter((c) => c.user?.login === bot && c.body.includes(marker))) {
-      await gh.request(`/repos/${target.repo}/issues/comments/${c.id}`, { method: "DELETE" });
-    }
-  } catch (error) {
-    notice(`Could not remove the status comment: ${(error as Error).message}`);
-  }
-}
-
 // Always runs last: it swaps the 👀 the Worker added for 🚀, or reports a failure instead of staying silent.
 async function main() {
   const credentials = await requestCredentials("write");
   const gh = client(credentials.token!);
   const { target } = credentials;
   const run = `${env("GITHUB_SERVER_URL")}/${env("GITHUB_REPOSITORY")}/actions/runs/${env("GITHUB_RUN_ID")}`;
-  const marker = `<!-- tidy:status run=${env("GITHUB_RUN_ID")} -->`;
-  if (process.env.ANNOUNCE === "true") {
-    // Written by tidy, not the model; it lets people follow a fix attempt while it runs.
-    await gh.request(`/repos/${target.repo}/issues/${target.number}/comments`, {
-      method: "POST",
-      body: { body: `Hi! tidy is looking into this issue and will try to open a pull request with a fix. You can [follow the run](${run}).\n${marker}` },
-    });
+  status = statusComment(gh, target, credentials.bot.login, env("GITHUB_RUN_ID"));
+  const announce = process.env.ANNOUNCE;
+  if (announce) {
+    // Written by tidy, not the model; it lets people follow the work while it runs.
+    await status.start(
+      announce === "review"
+        ? `tidy is reviewing this pull request. You can [follow the run](${run}).`
+        : `Hi! tidy is looking into this issue and will try to open a pull request with a fix. You can [follow the run](${run}).`,
+    );
     return;
   }
-  const report = (why: string) =>
-    gh
-      .request(`/repos/${target.repo}/issues/${target.number}/comments`, {
-        method: "POST",
-        body: { body: `${why} Nothing was changed. [See the run](${run}).${FOOTER}` },
-      })
-      .catch((error: Error) => notice(`Could not report the failure: ${error.message}`));
+  const report = async (why: string) => {
+    const body = `${why} Nothing was changed. [See the run](${run}).${FOOTER}`;
+    try {
+      if (!(await status.finish(body))) await gh.request(`/repos/${target.repo}/issues/${target.number}/comments`, { method: "POST", body: { body } });
+    } catch (error) {
+      notice(`Could not report the failure: ${(error as Error).message}`);
+    }
+  };
   let outcome: Outcome;
   try {
     outcome = await publish(gh, credentials);
@@ -356,8 +356,8 @@ async function main() {
   }
   const failed = process.env.FAILED === "true" && outcome === "nothing";
   if (failed) await report("tidy stopped because of an error.");
-  // When tidy decided to leave the issue alone, such as spam, the "looking into this" note goes away.
-  if (outcome === "nothing" && !failed) await removeStatus(gh, target, marker, credentials.bot.login);
+  // When tidy decided to leave the thread alone, such as spam, the status note goes away.
+  if (outcome === "nothing" && !failed) await status.remove().catch((error: Error) => notice(`Could not remove the status comment: ${error.message}`));
   await react(gh, target, outcome === "posted" ? "rocket" : failed || outcome === "problem" ? "confused" : null);
 }
 

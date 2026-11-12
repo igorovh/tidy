@@ -20,17 +20,17 @@ jobs:
       contents: read
       id-token: write
 
-  # Tells the issue tidy is on it, with a link to this run, while the agent works.
+  # Tells the thread tidy is on it, with a link to this run, while the agent works.
   announce:
     needs: gate
-    if: needs.gate.outputs.task == 'triage'
+    if: needs.gate.outputs.task == 'triage' || needs.gate.outputs.task == 'review'
     uses: ./.github/workflows/publish.yml
     permissions:
       actions: read
       contents: read
       id-token: write
     with:
-      announce: true
+      announce: ${{ needs.gate.outputs.task }}
 
   # Triage, then the fix or reply its route picks, in one job so the model key is fetched once.
   issue:
