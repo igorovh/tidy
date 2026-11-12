@@ -19,7 +19,6 @@ export interface Meta {
   trusted: boolean;
   author: { login: string; id: number };
   forceFix: boolean;
-  deep: boolean;
   fork: boolean;
   /** Workflows that would run tidy's branch with secrets; non-empty means a maintainer must approve first. */
   secretWorkflows: string[];
@@ -137,7 +136,6 @@ async function main() {
 
   let task: Task;
   let forceFix = false;
-  let deep = false;
   if (target.kind === "command") {
     const command = comments.find((c) => c.id === target.comment_id);
     if (!command) stop("command comment was deleted");
@@ -145,7 +143,6 @@ async function main() {
     const words = command.body.trim().split(/\s+/).slice(1, 3).map((w) => w.toLowerCase());
     if (words[0] === "review" && issue.pull_request) {
       task = "review";
-      deep = words[1] === "deep";
     } else if (words[0] === "fix" && !issue.pull_request) {
       task = "triage";
       forceFix = true;
@@ -258,7 +255,6 @@ async function main() {
     trusted: trusted && !fork,
     author: { login: issue.user.login, id: issue.user.id },
     forceFix,
-    deep,
     fork,
     secretWorkflows: risky,
     extras,
@@ -269,7 +265,7 @@ async function main() {
   setOutput("task", task);
   setOutput("trusted", String(meta.trusted));
   setOutput("triage-model", config.triage.model);
-  setOutput("review-model", deep ? config.review.deep_model : config.review.model);
+  setOutput("review-model", config.review.model);
   setOutput("checks", String(config.review.checks.length > 0 || extras.length > 0));
   setOutput("extras", String(extras.length > 0));
 }

@@ -150,7 +150,6 @@ Comment on an issue or pull request. Only people with write access can run comma
 | `@tidy fix` | Attempt a fix for an issue, even one triaged as a question |
 | `@tidy publish` | Open the pull request for a patch tidy posted for approval (within 7 days) |
 | `@tidy review` | Review the pull request again |
-| `@tidy review deep` | Review with `review.deep_model` |
 
 tidy reacts with 👀 as soon as it sees an issue, pull request or command, and swaps it for 🚀 when it
 has posted its answer, or 😕 with a link to the run when something failed. After opening a pull

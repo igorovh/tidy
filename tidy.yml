@@ -29,8 +29,6 @@ routes:
 
 review:
   model: opencode-go/muse-spark-1.3-contributor
-  # Used by `@tidy review deep`; set a stronger model here if you want one.
-  deep_model: opencode-go/muse-spark-1.3-contributor
   # Commands run on the pull request's code in a container without any credentials, for example:
   # checks: ["bun install --frozen-lockfile", "bun test"]
   checks: []

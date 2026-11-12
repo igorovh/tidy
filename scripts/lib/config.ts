@@ -29,7 +29,7 @@ export interface Config {
   models: { allowed: string[] };
   triage: { model: string };
   routes: Route[];
-  review: { model: string; deep_model: string; checks: string[]; image: string; extras: Extra[]; on_push: boolean; max_auto_reviews: number };
+  review: { model: string; checks: string[]; image: string; extras: Extra[]; on_push: boolean; max_auto_reviews: number };
   agent: { opencode: string; image: string; timeout_minutes: number };
   limits: { outsider_attempts_per_day: number };
   protected_paths: string[];
@@ -116,7 +116,7 @@ export function parseInstance(raw: unknown): Config {
     models: { allowed: c.models?.allowed ?? [] },
     triage: { model: c.triage?.model },
     routes: parseRoutes(c.routes ?? []),
-    review: { model: c.review?.model, deep_model: c.review?.deep_model ?? c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm", extras: [],
+    review: { model: c.review?.model, checks: c.review?.checks ?? [], image: c.review?.image ?? "node:22-bookworm", extras: [],
       on_push: c.review?.on_push !== false, max_auto_reviews: c.review?.max_auto_reviews ?? 5 },
     agent: { opencode: c.agent?.opencode, image: c.agent?.image ?? "node:22-bookworm", timeout_minutes: c.agent?.timeout_minutes ?? 30 },
     limits: { outsider_attempts_per_day: c.limits?.outsider_attempts_per_day ?? 2 },
@@ -125,7 +125,7 @@ export function parseInstance(raw: unknown): Config {
     safe_workflows: [],
     require_ruleset: c.require_ruleset === true,
   };
-  for (const model of [config.triage.model, config.review.model, config.review.deep_model, ...config.routes.map((r) => r.model)]) {
+  for (const model of [config.triage.model, config.review.model, ...config.routes.map((r) => r.model)]) {
     if (model !== undefined && !modelAllowed(config, model)) throw new Error(`Model ${model} is not in models.allowed`);
   }
   if (!/^\d+\.\d+\.\d+$/.test(config.agent.opencode ?? "")) throw new Error("agent.opencode must be an exact version");
@@ -162,7 +162,6 @@ export function mergeRepo(instance: Config, raw: unknown, warn: (message: string
     routes: routes.map((route) => (route.model ? { ...route, model: model(route.model, instance.triage.model, "routes.model") } : route)),
     review: {
       model: model(repo.review?.model, instance.review.model, "review.model"),
-      deep_model: model(repo.review?.deep_model, instance.review.deep_model, "review.deep_model"),
       checks: (checks as string[] | undefined) ?? instance.review.checks,
       image: (image as string | undefined) ?? instance.review.image,
       extras: parseExtras(repo.review?.extras),
